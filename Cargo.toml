@@ -3,7 +3,7 @@ name = "rlist"
 version = "0.0.1"
 edition = "2021"
 authors = [ "fedfontana" ]
-depcription = "Reading list manager cli"
+description = "Reading list manager cli"
 license = "MIT"
 repository = "https://github.com/fedfontana/rlist"
 
