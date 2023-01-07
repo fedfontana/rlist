@@ -7,6 +7,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 
 use crate::{entry::Entry, rlist::RList};
 
@@ -42,8 +43,8 @@ enum Action {
         id: i64,
     },
 
-    #[command(aliases=&["e"])]
-    Edit,
+    // #[command(aliases=&["e"])]
+    // Edit,
 
     #[command(aliases=&["ls", "l"])]
     List,
@@ -75,9 +76,10 @@ fn main() -> anyhow::Result<()> {
             println!("Removed entry: \n");
             old_entry.pretty_print();
         },
-        Action::Edit => unimplemented!(),
+        //Action::Edit => unimplemented!(),
         Action::List => {
             let entries = rlist.get_all()?;
+
             entries.iter().for_each(|e| {e.pretty_print();println!();});
         },
     }

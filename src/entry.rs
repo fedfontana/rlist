@@ -14,12 +14,27 @@ pub struct Entry {
     added: Option<String>,
 }
 
-const COLORS: [(u8, u8, u8); 5] = [
+const COLORS: [(u8, u8, u8); 20] = [
     (200, 10, 20), 
     (125, 30, 20), 
-    (10, 20, 55), 
     (130, 130, 10), 
-    (10, 200, 120),
+    (10, 150, 120),
+    (220, 165, 0),
+    (207, 64, 207),
+    (255, 117, 43),
+    (38, 169, 173),
+    (114, 39, 219),
+    (219, 39, 78),
+    (60, 105, 230),
+    (60, 230, 130),
+    (5, 171, 74),
+    (105, 201, 14),
+    (15, 103, 135),
+    (161, 66, 51),
+    (120, 89, 6),
+    (245, 44, 44),
+    (230, 195, 20),
+    (5, 2, 207),
 ];
 
 
@@ -63,7 +78,6 @@ impl Entry {
     }
 
     pub fn pretty_print(&self) {
-        // TODO determine topic color based on hash of topic
         println!("{name}: {url}{maybe_author}\nTopics: {topics}\nAdded on {added}",
             name = self.name.bold().truecolor(255, 165, 0),
             url = self.url.bright_blue().underline(),
