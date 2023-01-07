@@ -72,23 +72,14 @@ fn main() -> anyhow::Result<()> {
         }
         Action::Remove { id }=> {
             let old_entry = rlist.remove_with_id(id)?;
-            println!("Remoevd entry with id:{id} == {:?}", old_entry);
+            println!("Removed entry: \n");
+            old_entry.pretty_print();
         },
         Action::Edit => unimplemented!(),
         Action::List => {
             let entries = rlist.get_all()?;
-            entries.iter().for_each(|e| println!("Printing entry with name: {} and topics {:?}", e.name(), e.topics()));
+            entries.iter().for_each(|e| {e.pretty_print();println!();});
         },
-        //rlist.content.iter().for_each(|e| {
-            // println!(
-            //     "Entry with id:{}, url:{}, author: {}, topics: {} and date: {}",
-            //     e.id(),
-            //     e.url(),
-            //     e.author().unwrap_or("None"),
-            //     e.topics().join(","),
-            //     e.date()
-            // );
-        //}),
     }
     Ok(())
 }
