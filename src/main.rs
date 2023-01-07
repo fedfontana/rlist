@@ -40,7 +40,7 @@ enum Action {
 
     #[command(aliases=&["rm", "r"])]
     Remove {
-        id: i64,
+        name: String,
     },
 
     // #[command(aliases=&["e"])]
@@ -62,6 +62,7 @@ fn main() -> anyhow::Result<()> {
                 url,
                 author,
                 topics,
+                None
             );
             if rlist.add(e)? {
                 println!("Entry added to rlist");
@@ -71,16 +72,17 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Action::Remove { id }=> {
-            let old_entry = rlist.remove_with_id(id)?;
-            println!("Removed entry: \n");
+        Action::Remove { name }=> {
+            let old_entry = rlist.remove_by_name(name)?;
+            print!("Removed entry: \n");
             old_entry.pretty_print();
+            println!();
         },
         //Action::Edit => unimplemented!(),
         Action::List => {
             let entries = rlist.get_all()?;
 
-            entries.iter().for_each(|e| {e.pretty_print();println!();});
+            entries.iter().for_each(|e| {e.pretty_print_long();println!();});
         },
     }
     Ok(())

@@ -75,10 +75,11 @@ impl RList {
         Ok(true)
     }
 
-    pub fn remove_with_id(&self, id: i64) -> Result<Entry> {
-        let q = "DELETE FROM rlist WHERE entry_id = :entry_id RETURNING *;";
+    pub fn remove_by_name(&self, name: String) -> Result<Entry> {
+        let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
         let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":entry_id", id))?;
+        stmt.bind::<(&str, &str)>((":entry_name", name.as_ref()))?;
+        
         if let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
             let url = stmt.read::<String, _>("url")?;
@@ -90,7 +91,7 @@ impl RList {
                 Some(maybe_author)
             };
 
-            return Ok(Entry::new(name, url, author, Vec::new()));
+            return Ok(Entry::new(name, url, author, Vec::new(), None));
         }
 
         Err(anyhow::anyhow!(
@@ -142,6 +143,7 @@ impl RList {
                         Some(maybe_author)
                     },
                     vec![topic],
+                    Some(added),
                 );
                 res.push(entry);
             }

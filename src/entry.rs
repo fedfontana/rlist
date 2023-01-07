@@ -11,7 +11,7 @@ pub struct Entry {
     url: String,
     author: Option<String>,
     topics: Vec<String>,
-    added: Option<String>,
+    added: String,
 }
 
 const COLORS: [(u8, u8, u8); 20] = [
@@ -39,13 +39,13 @@ const COLORS: [(u8, u8, u8); 20] = [
 
 
 impl Entry {
-    pub fn new(name: String, url: String, author: Option<String>, topics: Vec<String>) -> Self {
+    pub fn new(name: String, url: String, author: Option<String>, topics: Vec<String>, added: Option<String>) -> Self {
         Self {
             name,
             url,
             author,
             topics,
-            added: None,
+            added: added.unwrap_or_default(),
         }
     }
 
@@ -77,13 +77,21 @@ impl Entry {
         topic.on_truecolor(c.0, c.1, c.2).to_string()
     }
 
-    pub fn pretty_print(&self) {
+    pub fn pretty_print_long(&self) {
         println!("{name}: {url}{maybe_author}\nTopics: {topics}\nAdded on {added}",
             name = self.name.bold().truecolor(255, 165, 0),
             url = self.url.bright_blue().underline(),
             maybe_author = self.author.as_ref().map(|v| format!(" by {}", v.green())).unwrap_or("".into()),
             topics = self.topics.iter().map(|t| Entry::pretty_print_topic(t.as_ref())).collect::<Vec<_>>().join(", "),
-            added = "2023-01-07 22:10:04",
+            added = self.added,
+        );
+    }
+
+    pub fn pretty_print(&self) {
+        println!("{name}: {url}{maybe_author}",
+            name = self.name.bold().truecolor(255, 165, 0),
+            url = self.url.bright_blue().underline(),
+            maybe_author = self.author.as_ref().map(|v| format!(" by {}", v.green())).unwrap_or("".into()),
         );
     }
 }
