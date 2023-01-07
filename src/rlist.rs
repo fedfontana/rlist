@@ -79,6 +79,8 @@ impl RList {
                     stmt.next()?;
                 }
             }
+        } else {
+            statement.next()?;
         }
         Ok(true)
     }
@@ -116,9 +118,9 @@ impl RList {
                 ls.added AS added, 
                 t.name AS topic 
             FROM rlist AS ls 
-            JOIN rlist_has_topic AS rht 
+            LEFT OUTER JOIN rlist_has_topic AS rht 
                 ON ls.entry_id = rht.entry_id 
-            JOIN topics AS t 
+            LEFT OUTER JOIN topics AS t 
                 ON t.topic_id = rht.topic_id
             ORDER BY ls.name;";
         let mut stmt = self.conn.prepare(q)?;
@@ -127,30 +129,92 @@ impl RList {
 
         while let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
-            let topic = stmt.read::<String, _>("topic")?;
-
+            let topic = stmt.read::<String, _>("topic").ok();
+            
             let mut should_add_to_last_entry = false;
             if let Some(last) = res.last() {
                 should_add_to_last_entry = last.name() == name;
             }
-
+            
             if should_add_to_last_entry {
-                let last = res.last_mut().expect("Checked it in the last if condition");
-                last.add_topic(topic);
+                if topic.is_some() {
+                    let last = res.last_mut().expect("Checked it in the last if condition");
+                    last.add_topic(topic.unwrap());
+                }
             } else {
                 let url = stmt.read::<String, _>("url")?;
                 let maybe_author = stmt.read::<String, _>("author")?;
                 let added = stmt.read::<String, _>("added")?;
+                
+                let topics = if topic.is_none() { vec![] } else { vec![topic.unwrap()]};
 
                 let entry = Entry::new(
-                    name,
+                    name.clone(),
                     url,
                     if maybe_author == "NULL" {
                         None
                     } else {
                         Some(maybe_author)
                     },
-                    vec![topic],
+                    topics,
+                    Some(added),
+                );
+                res.push(entry);
+            }
+        }
+        Ok(res)
+    }
+
+    pub fn query(&self, query: String) -> Result<Vec<Entry>> {
+        let q = "
+            SELECT 
+                ls.name AS name, 
+                ls.url AS url, 
+                ls.author AS author, 
+                ls.added AS added, 
+                t.name AS topic 
+            FROM rlist AS ls 
+            LEFT OUTER JOIN rlist_has_topic AS rht 
+            ON ls.entry_id = rht.entry_id 
+            LEFT OUTER JOIN topics AS t 
+            ON t.topic_id = rht.topic_id
+            WHERE ls.name LIKE '%' || :q || '%'
+            ORDER BY ls.name;";
+        let mut stmt = self.conn.prepare(q)?;
+        stmt.bind((":q", query.as_str()))?;
+
+        let mut res: Vec<Entry> = Vec::new();
+
+        while let sqlite::State::Row = stmt.next()? {
+            let name = stmt.read::<String, _>("name")?;
+            let topic = stmt.read::<String, _>("topic").ok();
+            
+            let mut should_add_to_last_entry = false;
+            if let Some(last) = res.last() {
+                should_add_to_last_entry = last.name() == name;
+            }
+            
+            if should_add_to_last_entry {
+                if topic.is_some() {
+                    let last = res.last_mut().expect("Checked it in the last if condition");
+                    last.add_topic(topic.unwrap());
+                }
+            } else {
+                let url = stmt.read::<String, _>("url")?;
+                let maybe_author = stmt.read::<String, _>("author")?;
+                let added = stmt.read::<String, _>("added")?;
+                
+                let topics = if topic.is_none() { vec![] } else { vec![topic.unwrap()]};
+
+                let entry = Entry::new(
+                    name.clone(),
+                    url,
+                    if maybe_author == "NULL" {
+                        None
+                    } else {
+                        Some(maybe_author)
+                    },
+                    topics,
                     Some(added),
                 );
                 res.push(entry);

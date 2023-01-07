@@ -45,6 +45,8 @@ enum Action {
     // Edit,
     #[command(aliases=&["ls", "l"])]
     List {
+        query: Option<String>,
+
         #[arg(short, long)]
         long: bool,
     },
@@ -78,8 +80,12 @@ fn main() -> anyhow::Result<()> {
             println!();
         }
         //Action::Edit => unimplemented!(),
-        Action::List { long } => {
-            let entries = rlist.get_all()?;
+        Action::List { long, query } => {
+            let entries = if query.is_some() {
+                rlist.query(query.unwrap())?
+            } else {
+                rlist.get_all()?
+            };
 
             if long {
                 entries.iter().for_each(|e| {
