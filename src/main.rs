@@ -39,7 +39,7 @@ enum Action {
 
     #[command(aliases=&["rm", "r"])]
     Remove {
-        id: String,
+        id: i64,
     },
 
     #[command(aliases=&["e"])]
@@ -60,6 +60,7 @@ fn main() -> anyhow::Result<()> {
                 name,
                 url,
                 author,
+                topics,
             );
             if rlist.add(e)? {
                 println!("Entry added to rlist");
@@ -70,14 +71,15 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Action::Remove { id }=> {
-            // if let Some(..) = rlist.remove_with_id(&id) {
-            //     println!("Remoevd entry with id:{id}");
-            // } else {
-            //     println!("Could not delete entry with id:{id} cause it was not in the rlist");
-            // }
+            let old_entry = rlist.remove_with_id(id)?;
+            println!("Remoevd entry with id:{id} == {:?}", old_entry);
         },
         Action::Edit => unimplemented!(),
-        Action::List => {},//rlist.content.iter().for_each(|e| {
+        Action::List => {
+            let entries = rlist.get_all()?;
+            entries.iter().for_each(|e| println!("Printing entry with name: {} and topics {:?}", e.name(), e.topics()));
+        },
+        //rlist.content.iter().for_each(|e| {
             // println!(
             //     "Entry with id:{}, url:{}, author: {}, topics: {} and date: {}",
             //     e.id(),

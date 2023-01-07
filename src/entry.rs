@@ -6,14 +6,16 @@ pub struct Entry {
     name: String,
     url: String,
     author: Option<String>,
+    topics: Vec<String>,
 }
 
 impl Entry {
-    pub fn new(name: String, url: String, author: Option<String>) -> Self {
+    pub fn new(name: String, url: String, author: Option<String>, topics: Vec<String>) -> Self {
         Self {
             name,
             url,
             author,
+            topics,
         }
     }
 
@@ -27,5 +29,13 @@ impl Entry {
 
     pub fn author(&self) -> Option<&str> {
         self.author.as_deref()
+    }
+
+    pub fn topics(&self) -> &Vec<String> {
+        &self.topics
+    }
+
+    pub fn add_topic(&mut self, topic: String) {
+        self.topics.push(topic)
     }
 }
