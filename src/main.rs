@@ -35,35 +35,34 @@ enum Action {
         author: Option<String>,
 
         #[arg(short, long, num_args = 1..)]
-        topics: Vec<String>
+        topics: Vec<String>,
     },
 
     #[command(aliases=&["rm", "r"])]
-    Remove {
-        name: String,
-    },
+    Remove { name: String },
 
     // #[command(aliases=&["e"])]
     // Edit,
-
     #[command(aliases=&["ls", "l"])]
-    List,
+    List {
+        #[arg(short, long)]
+        long: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
-    
     let args = Args::parse();
     let rlist = RList::init()?;
 
     match args.action {
-        Action::Add { name, author, url, topics, .. } => {
-            let e = Entry::new(
-                name,
-                url,
-                author,
-                topics,
-                None
-            );
+        Action::Add {
+            name,
+            author,
+            url,
+            topics,
+            ..
+        } => {
+            let e = Entry::new(name, url, author, topics, None);
             if rlist.add(e)? {
                 println!("Entry added to rlist");
             } else {
@@ -72,18 +71,28 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Action::Remove { name }=> {
+        Action::Remove { name } => {
             let old_entry = rlist.remove_by_name(name)?;
             print!("Removed entry: \n");
             old_entry.pretty_print();
             println!();
-        },
+        }
         //Action::Edit => unimplemented!(),
-        Action::List => {
+        Action::List { long } => {
             let entries = rlist.get_all()?;
 
-            entries.iter().for_each(|e| {e.pretty_print_long();println!();});
-        },
+            if long {
+                entries.iter().for_each(|e| {
+                    e.pretty_print_long();
+                    println!();
+                });
+            } else {
+                entries.iter().for_each(|e| {
+                    e.pretty_print();
+                    println!();
+                });
+            }
+        }
     }
     Ok(())
 }
