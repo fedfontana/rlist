@@ -1,5 +1,6 @@
 use crate::entry::Entry;
 use anyhow::Result;
+use std::path::Path;
 
 pub struct RList {
     conn: sqlite::Connection,
@@ -7,7 +8,14 @@ pub struct RList {
 
 impl RList {
     pub fn init() -> Result<Self> {
-        let conn = sqlite::open("rlist.sqlite")?;
+        let home_dir_path =
+            dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
+        let home_dir = Path::new(home_dir_path.as_os_str());
+        let rlist_dir = home_dir.join(Path::new("rlist"));
+        std::fs::create_dir_all(&rlist_dir)?;
+        let p = rlist_dir.join(Path::new("rlist.sqlite"));
+
+        let conn = sqlite::open(p)?;
         let q = "
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS rlist (
@@ -79,7 +87,7 @@ impl RList {
         let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind::<(&str, &str)>((":entry_name", name.as_ref()))?;
-        
+
         if let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
             let url = stmt.read::<String, _>("url")?;
