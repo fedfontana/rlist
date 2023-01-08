@@ -68,6 +68,9 @@ enum Action {
 
         #[arg(long)]
         clear_topics: bool,
+
+        #[arg(long, num_args = 1..)]
+        remove_topics: Option<Vec<String>>,
     },
 
     #[command(aliases=&["ls", "l"])]
@@ -124,8 +127,8 @@ fn main() -> anyhow::Result<()> {
                 return Err(anyhow::anyhow!("You gotta select something to delete boi"));
             }
         }
-        Action::Edit { old_name, new_name, author, url, topics, add_topics, clear_topics }=> {
-            let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, clear_topics)?;
+        Action::Edit { old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics }=> {
+            let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics)?;
             println!("The new entry is:");
             new_entry.pretty_print_long();
             println!();

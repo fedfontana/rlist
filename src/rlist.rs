@@ -238,8 +238,9 @@ impl RList {
         topics: Option<Vec<String>>,
         add_topics: Option<Vec<String>>,
         clear_topics: bool,
+        remove_topics: Option<Vec<String>>,
     ) -> Result<Entry> {
-        if new_name.is_none() && author.is_none() && url.is_none() && topics.is_none() && add_topics.is_none() && !clear_topics {
+        if new_name.is_none() && author.is_none() && url.is_none() && topics.is_none() && add_topics.is_none() && !clear_topics && remove_topics.is_none() {
             return Err(anyhow::anyhow!("You gotta edit something, boi. Nice edit, such wow, much rlist"));
         }
 
@@ -323,6 +324,34 @@ impl RList {
                     link_topics_stmt.bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
                     link_topics_stmt.next()?;
                 }
+            }
+
+            if remove_topics.is_some() {
+                let topics = remove_topics.unwrap();
+                let q = format!(
+                    "DELETE FROM rlist_has_topic 
+                    WHERE entry_id = ?
+                        AND topic_id IN (
+                            SELECT topic_id FROM topics WHERE name IN ({})
+                    ) RETURNING *;",
+                    (0..topics.len())
+                    .map(|_e| "?")
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                );
+
+                let mut topics_stmt = self.conn.prepare(q)?;
+
+                let bindings  = 
+                    [(1, sqlite::Value::from(entry_id))]
+                        .into_iter().chain(
+                            topics
+                            .iter().enumerate()
+                            .map(|(i, t)| (i + 2, sqlite::Value::from(t.as_str()))));
+                
+                
+                topics_stmt.bind_iter(bindings)?;
+                topics_stmt.next()?;
             }
 
             let q = "
