@@ -78,11 +78,16 @@ impl Entry {
     }
 
     pub fn pretty_print_long(&self) {
-        println!("{name}: {url}{maybe_author}\nTopics: {topics}\nAdded on {added}",
+        let topics_row = if self.topics.len() > 0 {
+            format!("Topics: {}\n", self.topics.iter().map(|t| Entry::pretty_print_topic(t.as_ref())).collect::<Vec<_>>().join(", "))
+        } else {
+            "".to_string()
+        };
+
+        println!("{name}: {url}{maybe_author}\n{topics_row}Added on {added}",
             name = self.name.bold().truecolor(255, 165, 0),
             url = self.url.bright_blue().underline(),
             maybe_author = self.author.as_ref().map(|v| format!(" by {}", v.green())).unwrap_or("".into()),
-            topics = self.topics.iter().map(|t| Entry::pretty_print_topic(t.as_ref())).collect::<Vec<_>>().join(", "),
             added = self.added,
         );
     }
