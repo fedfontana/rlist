@@ -22,7 +22,7 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Action {
-    #[command(aliases=&["a"])]
+    #[command(aliases=&["a", "create"])]
     Add {
         name: String,
 
@@ -38,7 +38,7 @@ enum Action {
         topics: Vec<String>,
     },
 
-    #[command(aliases=&["rm", "r"])]
+    #[command(aliases=&["rm", "r", "d", "delete"])]
     Remove { 
         /// Takes precedence over --topics/-t
         name: Option<String>,
@@ -73,7 +73,7 @@ enum Action {
         remove_topics: Option<Vec<String>>,
     },
 
-    #[command(aliases=&["ls", "l", "q", "query"])]
+    #[command(aliases=&["ls", "l", "q", "query", "s", "search", "find", "f"])]
     List {
         query: Option<String>,
 
