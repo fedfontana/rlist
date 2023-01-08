@@ -167,8 +167,24 @@ impl RList {
         Ok(res)
     }
 
-    pub fn query(&self, query: String) -> Result<Vec<Entry>> {
-        let q = "
+    pub fn query(&self, query: Option<String>, topics: Option<Vec<String>>, author: Option<String>, url: Option<String>) -> Result<Vec<Entry>> {
+        //? not checking that at least one of them is_some() before adding the where clause cause for not this function is only used after checking it
+        let mut bindings = Vec::new();
+        let mut clauses = Vec::new();
+        if query.is_some() {
+            clauses.push("ls.name LIKE '%' || :q || '%'");
+            bindings.push((":q", query.as_deref().unwrap()));
+        };
+        if author.is_some() {
+            clauses.push("ls.author LIKE '%' || :author || '%'");
+            bindings.push((":author", author.as_deref().unwrap()));
+        }
+        if url.is_some() {
+            clauses.push("ls.url LIKE '%' || :url || '%'");
+            bindings.push((":url", url.as_deref().unwrap()));
+        }
+        
+        let q = format!("
             SELECT 
                 ls.name AS name, 
                 ls.url AS url, 
@@ -180,10 +196,11 @@ impl RList {
             ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
             ON t.topic_id = rht.topic_id
-            WHERE ls.name LIKE '%' || :q || '%'
-            ORDER BY ls.name;";
+            WHERE {}
+            ORDER BY ls.name;", clauses.join(" AND "));
+
         let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":q", query.as_str()))?;
+        stmt.bind_iter(bindings)?;
 
         let mut res: Vec<Entry> = Vec::new();
 

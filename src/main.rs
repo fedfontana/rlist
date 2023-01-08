@@ -73,12 +73,21 @@ enum Action {
         remove_topics: Option<Vec<String>>,
     },
 
-    #[command(aliases=&["ls", "l"])]
+    #[command(aliases=&["ls", "l", "q", "query"])]
     List {
         query: Option<String>,
 
         #[arg(short, long)]
         long: bool,
+
+        #[arg(short, long, num_args = 1..)]
+        topics: Option<Vec<String>>,
+
+        #[arg(short, long)]
+        author: Option<String>,
+
+        #[arg(long)]
+        url: Option<String>,
     },
 }
 
@@ -133,9 +142,9 @@ fn main() -> anyhow::Result<()> {
             new_entry.pretty_print_long();
             println!();
         },
-        Action::List { long, query } => {
-            let entries = if query.is_some() {
-                rlist.query(query.unwrap())?
+        Action::List { long, query, topics, author, url } => {
+            let entries = if query.is_some() || topics.is_some() || author.is_some() || url.is_some() {
+                rlist.query(query, topics, author, url)?
             } else {
                 rlist.get_all()?
             };
