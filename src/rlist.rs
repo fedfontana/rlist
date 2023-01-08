@@ -275,10 +275,6 @@ impl RList {
 
         stmt.bind_iter(bindings)?;
 
-        if updates.len() > 0 && self.conn.change_count() == 0 {
-            return Err(anyhow::anyhow!("Nothing was updated"));
-        }
-
         if let sqlite::State::Row = stmt.next()? {
             let entry_id = stmt.read::<i64, _>("entry_id")?;
             let name = stmt.read::<String, _>("name")?;
