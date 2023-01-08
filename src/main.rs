@@ -39,7 +39,13 @@ enum Action {
     },
 
     #[command(aliases=&["rm", "r"])]
-    Remove { name: String },
+    Remove { 
+        /// Takes precedence over --topics/-t
+        name: Option<String>,
+
+        #[arg(short, long, num_args = 1..)]
+        topics: Option<Vec<String>>,
+    },
 
     #[command(aliases=&["e", "mv"])]
     Edit {
@@ -53,6 +59,7 @@ enum Action {
         #[arg(long)]
         url: Option<String>,
 
+        /// Takes precedence over --add-topics. `--topics a b c` is the same as `--clear-topics --add-topics a b c`
         #[arg(short, long, num_args = 1..)]
         topics: Option<Vec<String>>,
 
@@ -93,11 +100,29 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Action::Remove { name } => {
-            let old_entry = rlist.remove_by_name(name)?;
-            print!("Removed entry: \n");
-            old_entry.pretty_print();
-            println!();
+        Action::Remove { name, topics } => {
+            if name.is_some() {
+                let old_entry = rlist.remove_by_name(name.unwrap())?;
+                print!("Removed entry: \n");
+                old_entry.pretty_print();
+                println!();
+            } else if topics.is_some() {
+                let old_entries = rlist.remove_by_topics(topics.unwrap())?;
+                if old_entries.len() == 0 {
+                    println!("No entries were removed");
+                    return Ok(());
+                }
+                println!("Remove these entries:");
+                old_entries.iter().for_each(|e| {
+                    e.pretty_print();
+                    println!();
+                });
+                if old_entries.len() > 1 {
+                    println!("Removed a total of {} entries", old_entries.len());
+                }
+            } else {
+                return Err(anyhow::anyhow!("You gotta select something to delete boi"));
+            }
         }
         Action::Edit { old_name, new_name, author, url, topics, add_topics, clear_topics }=> {
             let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, clear_topics)?;

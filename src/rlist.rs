@@ -346,4 +346,57 @@ impl RList {
         }
         Err(anyhow::anyhow!("Something bad happended while updating the entry."))
     }
+
+    //let old_entries = rlist.remove_by_topics(topics.unwrap())?;
+    pub fn remove_by_topics(&self, topics: Vec<String>) -> Result<Vec<Entry>> {
+        let mut res = Vec::new();
+        for topic in topics {
+            let old_entries = self.remove_by_topic(topic)?;
+            res.extend(old_entries);
+        }
+        Ok(res)
+    }
+
+    pub fn remove_by_topic(&self, topic: String) -> Result<Vec<Entry>> {
+        let q = "SELECT topic_id FROM topics WHERE name = :topic;";
+        let mut stmt = self.conn.prepare(q)?;
+        stmt.bind((":topic", topic.as_str()))?;
+        if let sqlite::State::Done = stmt.next()? {
+            return Err(anyhow::anyhow!("Topic not in topics"));
+        }
+        let topic_id = stmt.read::<i64, _>("topic_id")?;
+
+        let q = "
+        DELETE FROM rlist 
+        WHERE entry_id IN (
+            SELECT entry_id 
+            FROM rlist_has_topic 
+            WHERE topic_id = :topic_id
+        ) RETURNING *;";
+        let mut stmt = self.conn.prepare(q)?;
+        stmt.bind((":topic_id", topic_id))?;
+
+        let mut res = Vec::new();
+        while let sqlite::State::Row = stmt.next()? {
+            let name = stmt.read::<String, _>("name")?;
+            let url = stmt.read::<String, _>("url")?;
+            let maybe_author = stmt.read::<String, _>("author")?;
+
+            let author = if maybe_author == "NULL" {
+                None
+            } else {
+                Some(maybe_author)
+            };
+            //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
+            let e = Entry::new(name, url, author, Vec::new(), Some(String::new()));
+            res.push(e);
+        }
+        
+        let q = "DELETE FROM topics WHERE topic_id = :topic_id";
+        let mut stmt = self.conn.prepare(q)?;
+        stmt.bind((":topic_id", topic_id))?;
+        stmt.next()?;
+
+        Ok(res)
+    }
 }
