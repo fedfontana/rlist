@@ -1,6 +1,6 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use std::path::Path;
+use std::{path::Path, any};
 
 pub struct RList {
     conn: sqlite::Connection,
@@ -130,12 +130,12 @@ impl RList {
         while let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
-            
+
             let mut should_add_to_last_entry = false;
             if let Some(last) = res.last() {
                 should_add_to_last_entry = last.name() == name;
             }
-            
+
             if should_add_to_last_entry {
                 if topic.is_some() {
                     let last = res.last_mut().expect("Checked it in the last if condition");
@@ -145,8 +145,12 @@ impl RList {
                 let url = stmt.read::<String, _>("url")?;
                 let maybe_author = stmt.read::<String, _>("author")?;
                 let added = stmt.read::<String, _>("added")?;
-                
-                let topics = if topic.is_none() { vec![] } else { vec![topic.unwrap()]};
+
+                let topics = if topic.is_none() {
+                    vec![]
+                } else {
+                    vec![topic.unwrap()]
+                };
 
                 let entry = Entry::new(
                     name.clone(),
@@ -188,12 +192,12 @@ impl RList {
         while let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
-            
+
             let mut should_add_to_last_entry = false;
             if let Some(last) = res.last() {
                 should_add_to_last_entry = last.name() == name;
             }
-            
+
             if should_add_to_last_entry {
                 if topic.is_some() {
                     let last = res.last_mut().expect("Checked it in the last if condition");
@@ -203,8 +207,12 @@ impl RList {
                 let url = stmt.read::<String, _>("url")?;
                 let maybe_author = stmt.read::<String, _>("author")?;
                 let added = stmt.read::<String, _>("added")?;
-                
-                let topics = if topic.is_none() { vec![] } else { vec![topic.unwrap()]};
+
+                let topics = if topic.is_none() {
+                    vec![]
+                } else {
+                    vec![topic.unwrap()]
+                };
 
                 let entry = Entry::new(
                     name.clone(),
@@ -221,5 +229,76 @@ impl RList {
             }
         }
         Ok(res)
+    }
+
+    //? how to delete topics from an entry?
+
+    pub fn edit(
+        &self,
+        old_name: String,
+        new_name: Option<String>,
+        author: Option<String>,
+        url: Option<String>,
+        topics: Option<Vec<String>>,
+        add_topics: Option<Vec<String>>,
+        clear_topics: bool,
+    ) -> Result<Entry> {
+        if new_name.is_none() && author.is_none() && url.is_none() && topics.is_none() && add_topics.is_none() {
+            return Err(anyhow::anyhow!("You gotta edit something, boi"));
+        }
+
+        let mut updates = Vec::new();
+        let mut bindings = vec![(":old_name", old_name.as_ref())];
+        if new_name.is_some() {
+            updates.push("name = :new_name");
+            bindings.push((":new_name", new_name.as_deref().unwrap()));
+        }
+        if author.is_some() {
+            updates.push("author = :author");
+            bindings.push((":author", author.as_deref().unwrap()));
+        }
+        if url.is_some() {
+            updates.push("url = :url");
+            bindings.push((":url", url.as_deref().unwrap()));
+        }
+
+        // if topics.is_some() {
+        //     updates = format!("{updates}, name = :new_name");
+        // }
+        // if add_topics.is_some() {
+        //     updates = format!("{updates}, name = :new_name");
+        // }
+
+
+        let q = format!("
+                UPDATE rlist
+                SET {u}
+                WHERE name = :old_name
+                RETURNING *;
+            ",
+            u = updates.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(q)?;
+
+        stmt.bind_iter(bindings)?;
+
+        if let sqlite::State::Row = dbg!(stmt.next())? {
+            let name = stmt.read::<String, _>("name")?;
+            let url = stmt.read::<String, _>("url")?;
+            let maybe_author = stmt.read::<String, _>("author")?;
+            let added = stmt.read::<String, _>("added")?;
+
+            let author = if maybe_author == "NULL" {
+                None
+            } else {
+                Some(maybe_author)
+            };
+
+            let e = Entry::new(name, url, author, vec![], Some(added));
+
+            return Ok(e);
+        }
+        Err(anyhow::anyhow!("Something bad happended while updating the entry."))
     }
 }

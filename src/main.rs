@@ -41,8 +41,25 @@ enum Action {
     #[command(aliases=&["rm", "r"])]
     Remove { name: String },
 
-    // #[command(aliases=&["e"])]
-    // Edit,
+    #[command(aliases=&["e", "mv"])]
+    Edit {
+        old_name: String,
+
+        new_name: Option<String>,
+
+        #[arg(short, long)]
+        author: Option<String>,
+
+        #[arg(long)]
+        url: Option<String>,
+
+        #[arg(short, long, num_args = 1..)]
+        topics: Option<Vec<String>>,
+
+        #[arg(long, num_args = 1..)]
+        add_topics: Option<Vec<String>>
+    },
+
     #[command(aliases=&["ls", "l"])]
     List {
         query: Option<String>,
@@ -79,7 +96,12 @@ fn main() -> anyhow::Result<()> {
             old_entry.pretty_print();
             println!();
         }
-        //Action::Edit => unimplemented!(),
+        Action::Edit { old_name, new_name, author, url, topics, add_topics }=> {
+            let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, false)?;
+            println!("The new entry is:");
+            new_entry.pretty_print_long();
+            println!();
+        },
         Action::List { long, query } => {
             let entries = if query.is_some() {
                 rlist.query(query.unwrap())?
