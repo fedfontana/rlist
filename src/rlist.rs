@@ -1,6 +1,8 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use std::{any, path::Path, str::FromStr, fmt::Display, collections::HashSet};
+use chrono::DateTime;
+use dateparser::DateTimeUtc;
+use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -31,7 +33,8 @@ impl ToString for OrderBy {
             OrderBy::Url => "url",
             OrderBy::Author => "author",
             OrderBy::Added => "added",
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -148,12 +151,12 @@ impl RList {
         url: Option<String>,
         sort_by: Option<OrderBy>,
         desc: bool,
+        from: Option<DateTimeUtc>,
+        to: Option<DateTimeUtc>,
     ) -> Result<Vec<Entry>> {
-        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author), 
+        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author),
         //TODO and then the ones with author == NULL
 
-        //TODO still need to filter by topic(s)        
-        
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
         if query.is_some() {
@@ -169,17 +172,26 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
-        let sort = if let Some(sort_col ) = sort_by  {
-            let order = if desc {
-                "DESC"
-            } else {
-                "ASC"
-            };
+        let opt_from = from.map(|dt| dt_to_string(dt));
+        if let Some(from) = opt_from.as_deref() {
+            clauses.push("ls.added >= :from");
+            // SQLite format:  YYYY-MM-DD HH:MM:SS
+            bindings.push((":from", from.as_ref()));
+        }
+
+        let opt_to= to.map(|dt| dt_to_string(dt));
+        if let Some(to )= opt_to.as_deref() {
+            clauses.push("ls.added <= :to");
+            // SQLite format:  YYYY-MM-DD HH:MM:SS
+            bindings.push((":to", to.as_ref()));
+        }
+
+        let sort = if let Some(sort_col) = sort_by {
+            let order = if desc { "DESC" } else { "ASC" };
             format!("ORDER BY {} {};", sort_col.to_string(), order)
         } else {
             ";".to_string()
         };
-        
 
         let q = format!(
             "
@@ -245,14 +257,18 @@ impl RList {
         if let Some(topics) = topics {
             let required_topics_set = topics.iter().collect::<HashSet<_>>();
 
-            res = res.into_iter().filter(|entry| {
-                let entry_topics_set = entry.topics()
-                    .iter().collect::<HashSet<_>>();
+            res = res
+                .into_iter()
+                .filter(|entry| {
+                    let entry_topics_set = entry.topics().iter().collect::<HashSet<_>>();
 
-                entry_topics_set
-                    .intersection(&required_topics_set)
-                    .collect::<Vec<_>>().len() == required_topics_set.len()
-            }).collect();
+                    entry_topics_set
+                        .intersection(&required_topics_set)
+                        .collect::<Vec<_>>()
+                        .len()
+                        == required_topics_set.len()
+                })
+                .collect();
         }
 
         Ok(res)
@@ -470,4 +486,10 @@ impl RList {
 
         Ok(res)
     }
+}
+
+fn dt_to_string(dt: DateTimeUtc) -> String {
+    chrono::DateTime::<chrono::Local>::from(dt.0)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }

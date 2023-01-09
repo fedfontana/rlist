@@ -1,13 +1,17 @@
 #![allow(dead_code, unused)]
 
 use std::{
+    fmt::Display,
     fs::{self, File},
     io::Write,
-    path::Path, str::FromStr, fmt::Display,
+    path::Path,
+    str::FromStr,
 };
 
+use chrono::Timelike;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use dateparser::DateTimeUtc;
 use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
@@ -37,7 +41,7 @@ enum Action {
     },
 
     #[command(aliases=&["rm", "r", "d", "delete"])]
-    Remove { 
+    Remove {
         /// Takes precedence over --topics/-t
         name: Option<String>,
 
@@ -92,6 +96,12 @@ enum Action {
 
         #[arg(long)]
         desc: bool,
+
+        #[arg(long)]
+        from: Option<String>,
+
+        #[arg(long)]
+        to: Option<String>,
     },
 }
 
@@ -140,14 +150,63 @@ fn main() -> anyhow::Result<()> {
                 return Err(anyhow::anyhow!("You gotta select something to delete boi"));
             }
         }
-        Action::Edit { old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics }=> {
-            let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics)?;
+        Action::Edit {
+            old_name,
+            new_name,
+            author,
+            url,
+            topics,
+            add_topics,
+            clear_topics,
+            remove_topics,
+        } => {
+            let new_entry = rlist.edit(
+                old_name,
+                new_name,
+                author,
+                url,
+                topics,
+                add_topics,
+                clear_topics,
+                remove_topics,
+            )?;
             println!("The new entry is:");
             new_entry.pretty_print_long();
             println!();
-        },
-        Action::List { long, query, topics, author, url, sort_by, desc } => {
-            let entries = rlist.query(query, topics, author, url, sort_by, desc)?;
+        }
+        Action::List {
+            long,
+            query,
+            topics,
+            author,
+            url,
+            sort_by,
+            desc,
+            from,
+            to,
+        } => {
+            let opt_from = if let Some(inner) = from {
+                Some(inner.parse::<DateTimeUtc>()?)
+            } else {
+                None
+            };
+
+            let opt_to = if let Some(inner) = to {
+                Some(inner.parse::<DateTimeUtc>()?)
+            } else {
+                None
+            };
+
+            let entries = rlist.query(
+                query,
+                topics,
+                author,
+                url,
+                sort_by,
+                desc,
+                opt_from,
+                opt_to,
+            )?;
 
             if long {
                 entries.iter().for_each(|e| {
