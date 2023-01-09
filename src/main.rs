@@ -1,13 +1,18 @@
 #![allow(dead_code, unused)]
 
 use std::{
+    fmt::Display,
     fs::{self, File},
     io::Write,
     path::Path,
+    str::FromStr,
 };
 
+use chrono::Timelike;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use dateparser::DateTimeUtc;
+use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
 
@@ -22,14 +27,11 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Action {
-    #[command(aliases=&["a"])]
+    #[command(aliases=&["a", "create"])]
     Add {
         name: String,
 
         url: String,
-
-        #[arg(long)]
-        id: Option<String>,
 
         #[arg(short, long)]
         author: Option<String>,
@@ -38,8 +40,8 @@ enum Action {
         topics: Vec<String>,
     },
 
-    #[command(aliases=&["rm", "r"])]
-    Remove { 
+    #[command(aliases=&["rm", "r", "d", "delete"])]
+    Remove {
         /// Takes precedence over --topics/-t
         name: Option<String>,
 
@@ -73,12 +75,33 @@ enum Action {
         remove_topics: Option<Vec<String>>,
     },
 
-    #[command(aliases=&["ls", "l"])]
+    #[command(aliases=&["ls", "l", "q", "query", "s", "search", "find", "f"])]
     List {
         query: Option<String>,
 
         #[arg(short, long)]
         long: bool,
+
+        #[arg(short, long, num_args = 1..)]
+        topics: Option<Vec<String>>,
+
+        #[arg(short, long)]
+        author: Option<String>,
+
+        #[arg(long)]
+        url: Option<String>,
+
+        #[arg(short, long)]
+        sort_by: Option<OrderBy>,
+
+        #[arg(long)]
+        desc: bool,
+
+        #[arg(long)]
+        from: Option<String>,
+
+        #[arg(long)]
+        to: Option<String>,
     },
 }
 
@@ -127,18 +150,63 @@ fn main() -> anyhow::Result<()> {
                 return Err(anyhow::anyhow!("You gotta select something to delete boi"));
             }
         }
-        Action::Edit { old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics }=> {
-            let new_entry = rlist.edit(old_name, new_name, author, url, topics, add_topics, clear_topics, remove_topics)?;
+        Action::Edit {
+            old_name,
+            new_name,
+            author,
+            url,
+            topics,
+            add_topics,
+            clear_topics,
+            remove_topics,
+        } => {
+            let new_entry = rlist.edit(
+                old_name,
+                new_name,
+                author,
+                url,
+                topics,
+                add_topics,
+                clear_topics,
+                remove_topics,
+            )?;
             println!("The new entry is:");
             new_entry.pretty_print_long();
             println!();
-        },
-        Action::List { long, query } => {
-            let entries = if query.is_some() {
-                rlist.query(query.unwrap())?
+        }
+        Action::List {
+            long,
+            query,
+            topics,
+            author,
+            url,
+            sort_by,
+            desc,
+            from,
+            to,
+        } => {
+            let opt_from = if let Some(inner) = from {
+                Some(inner.parse::<DateTimeUtc>()?)
             } else {
-                rlist.get_all()?
+                None
             };
+
+            let opt_to = if let Some(inner) = to {
+                Some(inner.parse::<DateTimeUtc>()?)
+            } else {
+                None
+            };
+
+            let entries = rlist.query(
+                query,
+                topics,
+                author,
+                url,
+                sort_by,
+                desc,
+                opt_from,
+                opt_to,
+            )?;
 
             if long {
                 entries.iter().for_each(|e| {

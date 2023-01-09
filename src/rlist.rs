@@ -1,6 +1,42 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use std::{path::Path, any};
+use chrono::DateTime;
+use dateparser::DateTimeUtc;
+use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
+
+#[derive(Debug, Clone)]
+pub enum OrderBy {
+    Name,
+    Url,
+    Author,
+    Added,
+}
+
+impl FromStr for OrderBy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "name" => Ok(Self::Name),
+            "url" => Ok(Self::Url),
+            "author" => Ok(Self::Author),
+            "added" => Ok(Self::Added),
+            other => Err(anyhow::anyhow!("Option not recognized")),
+        }
+    }
+}
+
+impl ToString for OrderBy {
+    fn to_string(&self) -> String {
+        (match self {
+            OrderBy::Name => "name",
+            OrderBy::Url => "url",
+            OrderBy::Author => "author",
+            OrderBy::Added => "added",
+        })
+        .to_string()
+    }
+}
 
 pub struct RList {
     conn: sqlite::Connection,
@@ -107,68 +143,58 @@ impl RList {
         ))
     }
 
-    pub fn get_all(&self) -> Result<Vec<Entry>> {
-        let q = "
-            SELECT 
-                ls.name AS name, 
-                ls.url AS url, 
-                ls.author AS author, 
-                ls.added AS added, 
-                t.name AS topic 
-            FROM rlist AS ls 
-            LEFT OUTER JOIN rlist_has_topic AS rht 
-                ON ls.entry_id = rht.entry_id 
-            LEFT OUTER JOIN topics AS t 
-                ON t.topic_id = rht.topic_id
-            ORDER BY ls.name;";
-        let mut stmt = self.conn.prepare(q)?;
+    pub fn query(
+        &self,
+        query: Option<String>,
+        topics: Option<Vec<String>>,
+        author: Option<String>,
+        url: Option<String>,
+        sort_by: Option<OrderBy>,
+        desc: bool,
+        from: Option<DateTimeUtc>,
+        to: Option<DateTimeUtc>,
+    ) -> Result<Vec<Entry>> {
+        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author),
+        //TODO and then the ones with author == NULL
 
-        let mut res: Vec<Entry> = Vec::new();
-
-        while let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let topic = stmt.read::<String, _>("topic").ok();
-
-            let mut should_add_to_last_entry = false;
-            if let Some(last) = res.last() {
-                should_add_to_last_entry = last.name() == name;
-            }
-
-            if should_add_to_last_entry {
-                if topic.is_some() {
-                    let last = res.last_mut().expect("Checked it in the last if condition");
-                    last.add_topic(topic.unwrap());
-                }
-            } else {
-                let url = stmt.read::<String, _>("url")?;
-                let maybe_author = stmt.read::<String, _>("author")?;
-                let added = stmt.read::<String, _>("added")?;
-
-                let topics = if topic.is_none() {
-                    vec![]
-                } else {
-                    vec![topic.unwrap()]
-                };
-
-                let entry = Entry::new(
-                    name.clone(),
-                    url,
-                    if maybe_author == "NULL" {
-                        None
-                    } else {
-                        Some(maybe_author)
-                    },
-                    topics,
-                    Some(added),
-                );
-                res.push(entry);
-            }
+        let mut bindings = Vec::new();
+        let mut clauses = Vec::new();
+        if query.is_some() {
+            clauses.push("ls.name LIKE '%' || :q || '%'");
+            bindings.push((":q", query.as_deref().unwrap()));
+        };
+        if author.is_some() {
+            clauses.push("ls.author LIKE '%' || :author || '%'");
+            bindings.push((":author", author.as_deref().unwrap()));
         }
-        Ok(res)
-    }
+        if url.is_some() {
+            clauses.push("ls.url LIKE '%' || :url || '%'");
+            bindings.push((":url", url.as_deref().unwrap()));
+        }
 
-    pub fn query(&self, query: String) -> Result<Vec<Entry>> {
-        let q = "
+        let opt_from = from.map(|dt| dt_to_string(dt));
+        if let Some(from) = opt_from.as_deref() {
+            clauses.push("ls.added >= :from");
+            // SQLite format:  YYYY-MM-DD HH:MM:SS
+            bindings.push((":from", from.as_ref()));
+        }
+
+        let opt_to= to.map(|dt| dt_to_string(dt));
+        if let Some(to )= opt_to.as_deref() {
+            clauses.push("ls.added <= :to");
+            // SQLite format:  YYYY-MM-DD HH:MM:SS
+            bindings.push((":to", to.as_ref()));
+        }
+
+        let sort = if let Some(sort_col) = sort_by {
+            let order = if desc { "DESC" } else { "ASC" };
+            format!("ORDER BY {} {};", sort_col.to_string(), order)
+        } else {
+            ";".to_string()
+        };
+
+        let q = format!(
+            "
             SELECT 
                 ls.name AS name, 
                 ls.url AS url, 
@@ -180,10 +206,17 @@ impl RList {
             ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
             ON t.topic_id = rht.topic_id
-            WHERE ls.name LIKE '%' || :q || '%'
-            ORDER BY ls.name;";
+            {}
+            {sort}",
+            if clauses.len() > 0 {
+                format!("WHERE {}", clauses.join(" AND "))
+            } else {
+                "".to_string()
+            }
+        );
+
         let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":q", query.as_str()))?;
+        stmt.bind_iter(bindings)?;
 
         let mut res: Vec<Entry> = Vec::new();
 
@@ -191,15 +224,9 @@ impl RList {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
 
-            let mut should_add_to_last_entry = false;
-            if let Some(last) = res.last() {
-                should_add_to_last_entry = last.name() == name;
-            }
-
-            if should_add_to_last_entry {
+            if let Some(pos) = res.iter().position(|e| e.name() == name) {
                 if topic.is_some() {
-                    let last = res.last_mut().expect("Checked it in the last if condition");
-                    last.add_topic(topic.unwrap());
+                    res[pos].add_topic(topic.clone().unwrap());
                 }
             } else {
                 let url = stmt.read::<String, _>("url")?;
@@ -226,6 +253,24 @@ impl RList {
                 res.push(entry);
             }
         }
+
+        if let Some(topics) = topics {
+            let required_topics_set = topics.iter().collect::<HashSet<_>>();
+
+            res = res
+                .into_iter()
+                .filter(|entry| {
+                    let entry_topics_set = entry.topics().iter().collect::<HashSet<_>>();
+
+                    entry_topics_set
+                        .intersection(&required_topics_set)
+                        .collect::<Vec<_>>()
+                        .len()
+                        == required_topics_set.len()
+                })
+                .collect();
+        }
+
         Ok(res)
     }
 
@@ -240,8 +285,17 @@ impl RList {
         clear_topics: bool,
         remove_topics: Option<Vec<String>>,
     ) -> Result<Entry> {
-        if new_name.is_none() && author.is_none() && url.is_none() && topics.is_none() && add_topics.is_none() && !clear_topics && remove_topics.is_none() {
-            return Err(anyhow::anyhow!("You gotta edit something, boi. Nice edit, such wow, much rlist"));
+        if new_name.is_none()
+            && author.is_none()
+            && url.is_none()
+            && topics.is_none()
+            && add_topics.is_none()
+            && !clear_topics
+            && remove_topics.is_none()
+        {
+            return Err(anyhow::anyhow!(
+                "You gotta edit something, boi. Nice edit, such wow, much rlist"
+            ));
         }
 
         let mut updates = Vec::new();
@@ -260,7 +314,8 @@ impl RList {
         }
 
         let q = if updates.len() > 0 {
-            format!("
+            format!(
+                "
                 UPDATE rlist
                 SET {u}
                 WHERE name = :old_name
@@ -298,9 +353,9 @@ impl RList {
 
             // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
             // --topics removes all topics associated with the entry and creates the new ones, whilst --add-topics just appends some topics
-            
+
             let topics_to_add = if topics.is_some() { topics } else { add_topics };
-            
+
             if topics_to_add.is_some() {
                 let topics = topics_to_add.unwrap();
                 let q = format!(
@@ -308,20 +363,22 @@ impl RList {
                     ON CONFLICT (name) DO UPDATE SET name=name 
                     RETURNING topic_id;",
                     (0..topics.len())
-                    .map(|e| "(?)")
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                        .map(|e| "(?)")
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 );
                 let mut topics_stmt = self.conn.prepare(q)?;
 
-                topics_stmt.bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
+                topics_stmt
+                    .bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
 
                 while let sqlite::State::Row = topics_stmt.next()? {
                     let topic_id = topics_stmt.read::<i64, _>("topic_id")?;
                     let q = "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES (:entry_id, :topic_id)
                     ON CONFLICT (entry_id, topic_id) DO UPDATE SET entry_id=entry_id;";
                     let mut link_topics_stmt = self.conn.prepare(q)?;
-                    link_topics_stmt.bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
+                    link_topics_stmt
+                        .bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
                     link_topics_stmt.next()?;
                 }
             }
@@ -335,21 +392,20 @@ impl RList {
                             SELECT topic_id FROM topics WHERE name IN ({})
                     ) RETURNING *;",
                     (0..topics.len())
-                    .map(|_e| "?")
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                        .map(|_e| "?")
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 );
 
                 let mut topics_stmt = self.conn.prepare(q)?;
 
-                let bindings  = 
-                    [(1, sqlite::Value::from(entry_id))]
-                        .into_iter().chain(
-                            topics
-                            .iter().enumerate()
-                            .map(|(i, t)| (i + 2, sqlite::Value::from(t.as_str()))));
-                
-                
+                let bindings = [(1, sqlite::Value::from(entry_id))].into_iter().chain(
+                    topics
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (i + 2, sqlite::Value::from(t.as_str()))),
+                );
+
                 topics_stmt.bind_iter(bindings)?;
                 topics_stmt.next()?;
             }
@@ -373,7 +429,9 @@ impl RList {
 
             return Ok(e);
         }
-        Err(anyhow::anyhow!("Something bad happended while updating the entry."))
+        Err(anyhow::anyhow!(
+            "Something bad happended while updating the entry."
+        ))
     }
 
     //let old_entries = rlist.remove_by_topics(topics.unwrap())?;
@@ -420,7 +478,7 @@ impl RList {
             let e = Entry::new(name, url, author, Vec::new(), Some(String::new()));
             res.push(e);
         }
-        
+
         let q = "DELETE FROM topics WHERE topic_id = :topic_id";
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic_id", topic_id))?;
@@ -428,4 +486,10 @@ impl RList {
 
         Ok(res)
     }
+}
+
+fn dt_to_string(dt: DateTimeUtc) -> String {
+    chrono::DateTime::<chrono::Local>::from(dt.0)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
