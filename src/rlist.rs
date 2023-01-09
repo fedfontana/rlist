@@ -140,66 +140,6 @@ impl RList {
         ))
     }
 
-    pub fn get_all(&self) -> Result<Vec<Entry>> {
-        let q = "
-            SELECT 
-                ls.name AS name, 
-                ls.url AS url, 
-                ls.author AS author, 
-                ls.added AS added, 
-                t.name AS topic 
-            FROM rlist AS ls 
-            LEFT OUTER JOIN rlist_has_topic AS rht 
-                ON ls.entry_id = rht.entry_id 
-            LEFT OUTER JOIN topics AS t 
-                ON t.topic_id = rht.topic_id
-            ORDER BY ls.name;";
-        let mut stmt = self.conn.prepare(q)?;
-
-        let mut res: Vec<Entry> = Vec::new();
-
-        while let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let topic = stmt.read::<String, _>("topic").ok();
-
-            let mut should_add_to_last_entry = false;
-            if let Some(last) = res.last() {
-                should_add_to_last_entry = last.name() == name;
-            }
-
-            if should_add_to_last_entry {
-                if topic.is_some() {
-                    let last = res.last_mut().expect("Checked it in the last if condition");
-                    last.add_topic(topic.unwrap());
-                }
-            } else {
-                let url = stmt.read::<String, _>("url")?;
-                let maybe_author = stmt.read::<String, _>("author")?;
-                let added = stmt.read::<String, _>("added")?;
-
-                let topics = if topic.is_none() {
-                    vec![]
-                } else {
-                    vec![topic.unwrap()]
-                };
-
-                let entry = Entry::new(
-                    name.clone(),
-                    url,
-                    if maybe_author == "NULL" {
-                        None
-                    } else {
-                        Some(maybe_author)
-                    },
-                    topics,
-                    Some(added),
-                );
-                res.push(entry);
-            }
-        }
-        Ok(res)
-    }
-
     pub fn query(
         &self,
         query: Option<String>,
@@ -209,7 +149,11 @@ impl RList {
         sort_by: Option<OrderBy>,
         desc: bool,
     ) -> Result<Vec<Entry>> {
-        //? not checking that at least one of them is_some() before adding the where clause cause for not this function is only used after checking it
+        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author), 
+        //TODO and then the ones with author == NULL
+
+        //TODO still need to filter by topic(s)        
+        
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
         if query.is_some() {
@@ -250,9 +194,13 @@ impl RList {
             ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
             ON t.topic_id = rht.topic_id
-            WHERE {}
+            {}
             {sort}",
-            clauses.join(" AND ")
+            if clauses.len() > 0 {
+                format!("WHERE {}", clauses.join(" AND "))
+            } else {
+                "".to_string()
+            }
         );
 
         let mut stmt = self.conn.prepare(q)?;

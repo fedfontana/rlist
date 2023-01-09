@@ -29,9 +29,6 @@ enum Action {
 
         url: String,
 
-        #[arg(long)]
-        id: Option<String>,
-
         #[arg(short, long)]
         author: Option<String>,
 
@@ -150,11 +147,7 @@ fn main() -> anyhow::Result<()> {
             println!();
         },
         Action::List { long, query, topics, author, url, sort_by, desc } => {
-            let entries = if query.is_some() || topics.is_some() || author.is_some() || url.is_some() {
-                rlist.query(query, topics, author, url, sort_by, desc)?
-            } else {
-                rlist.get_all()?
-            };
+            let entries = rlist.query(query, topics, author, url, sort_by, desc)?;
 
             if long {
                 entries.iter().for_each(|e| {
