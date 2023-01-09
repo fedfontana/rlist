@@ -3,11 +3,12 @@
 use std::{
     fs::{self, File},
     io::Write,
-    path::Path,
+    path::Path, str::FromStr, fmt::Display,
 };
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
 
@@ -88,6 +89,12 @@ enum Action {
 
         #[arg(long)]
         url: Option<String>,
+
+        #[arg(short, long)]
+        sort_by: Option<OrderBy>,
+
+        #[arg(long)]
+        desc: bool,
     },
 }
 
@@ -142,9 +149,9 @@ fn main() -> anyhow::Result<()> {
             new_entry.pretty_print_long();
             println!();
         },
-        Action::List { long, query, topics, author, url } => {
+        Action::List { long, query, topics, author, url, sort_by, desc } => {
             let entries = if query.is_some() || topics.is_some() || author.is_some() || url.is_some() {
-                rlist.query(query, topics, author, url)?
+                rlist.query(query, topics, author, url, sort_by, desc)?
             } else {
                 rlist.get_all()?
             };

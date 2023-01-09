@@ -1,6 +1,29 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use std::{path::Path, any};
+use std::{path::Path, any, str::FromStr};
+
+
+#[derive(Debug, Clone)]
+pub enum OrderBy {
+    Name,
+    Url,
+    Author,
+    Added,
+}
+
+impl FromStr for OrderBy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "name" => Ok(Self::Name),
+            "url" => Ok(Self::Url),
+            "author" => Ok(Self::Author),
+            "added" => Ok(Self::Added),
+            other => Err(anyhow::anyhow!("Option not recognized"))
+        }
+    }
+}
 
 pub struct RList {
     conn: sqlite::Connection,
@@ -167,7 +190,7 @@ impl RList {
         Ok(res)
     }
 
-    pub fn query(&self, query: Option<String>, topics: Option<Vec<String>>, author: Option<String>, url: Option<String>) -> Result<Vec<Entry>> {
+    pub fn query(&self, query: Option<String>, topics: Option<Vec<String>>, author: Option<String>, url: Option<String>, sort_by: Option<OrderBy>, desc: bool) -> Result<Vec<Entry>> {
         //? not checking that at least one of them is_some() before adding the where clause cause for not this function is only used after checking it
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
