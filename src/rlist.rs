@@ -1,6 +1,6 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use std::{any, path::Path, str::FromStr, fmt::Display};
+use std::{any, path::Path, str::FromStr, fmt::Display, collections::HashSet};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -241,6 +241,20 @@ impl RList {
                 res.push(entry);
             }
         }
+
+        if let Some(topics) = topics {
+            let required_topics_set = topics.iter().collect::<HashSet<_>>();
+
+            res = res.into_iter().filter(|entry| {
+                let entry_topics_set = entry.topics()
+                    .iter().collect::<HashSet<_>>();
+
+                entry_topics_set
+                    .intersection(&required_topics_set)
+                    .collect::<Vec<_>>().len() == required_topics_set.len()
+            }).collect();
+        }
+
         Ok(res)
     }
 
