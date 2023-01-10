@@ -1,4 +1,4 @@
-use crate::entry::Entry;
+use crate::{entry::Entry, topic::Topic};
 use anyhow::Result;
 use chrono::DateTime;
 use dateparser::DateTimeUtc;
@@ -77,45 +77,17 @@ impl RList {
     }
 
     pub fn add(&self, entry: Entry) -> Result<bool> {
-        let query = "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING entry_id";
-        let mut statement = self.conn.prepare(query)?;
-        statement.bind(
-            &[
-                (":name", entry.name()),
-                (":url", entry.url()),
-                (":author", entry.author().unwrap_or("NULL")),
-            ][..],
-        )?;
+        let entry_id = Entry::create(&self.conn, entry.name(), entry.url(), entry.author())?;
+        println!("Ciao");
 
         let topics = entry.topics();
         if topics.len() > 0 {
-            if let sqlite::State::Row = statement.next()? {
-                let entry_id = statement.read::<i64, _>("entry_id")?;
-
-                let q = format!(
-                    "INSERT INTO topics (name) VALUES {} 
-                        ON CONFLICT (name) DO UPDATE SET name=name 
-                        RETURNING topic_id;",
-                    (0..topics.len())
-                        .map(|e| "(?)")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                let mut stmt = self.conn.prepare(q)?;
-
-                stmt.bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
-
-                while let sqlite::State::Row = stmt.next()? {
-                    let topic_id = stmt.read::<i64, _>("topic_id")?;
-                    let q = "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES (:entry_id, :topic_id);";
-                    let mut stmt = self.conn.prepare(q)?;
-                    stmt.bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
-                    stmt.next()?;
-                }
-            }
-        } else {
-            statement.next()?;
+            let topic_ids = Topic::create_many(&self.conn, topics)?;
+            println!("Ciao");
+            Entry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+            println!("Ciao");
         }
+
         Ok(true)
     }
 
@@ -179,8 +151,8 @@ impl RList {
             bindings.push((":from", from.as_ref()));
         }
 
-        let opt_to= to.map(|dt| dt_to_string(dt));
-        if let Some(to )= opt_to.as_deref() {
+        let opt_to = to.map(|dt| dt_to_string(dt));
+        if let Some(to) = opt_to.as_deref() {
             clauses.push("ls.added <= :to");
             // SQLite format:  YYYY-MM-DD HH:MM:SS
             bindings.push((":to", to.as_ref()));

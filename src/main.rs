@@ -18,6 +18,7 @@ use crate::{entry::Entry, rlist::RList};
 
 mod entry;
 mod rlist;
+mod topic;
 
 #[derive(Parser, Debug)]
 struct Args {
