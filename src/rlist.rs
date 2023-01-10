@@ -78,41 +78,22 @@ impl RList {
 
     pub fn add(&self, entry: Entry) -> Result<bool> {
         let entry_id = Entry::create(&self.conn, entry.name(), entry.url(), entry.author())?;
-        println!("Ciao");
 
         let topics = entry.topics();
         if topics.len() > 0 {
             let topic_ids = Topic::create_many(&self.conn, topics)?;
-            println!("Ciao");
             Entry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
-            println!("Ciao");
         }
 
         Ok(true)
     }
 
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
-        let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind::<(&str, &str)>((":entry_name", name.as_ref()))?;
-
-        if let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
-
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
-
-            return Ok(Entry::new(name, url, author, Vec::new(), None));
+        let r = Entry::remove_by_name(&self.conn, name.clone())?;
+        if r.is_none() {
+            return Err(anyhow::anyhow!("No entry found with name: {name}"));
         }
-
-        Err(anyhow::anyhow!(
-            "There was an error deleting the selected entry."
-        ))
+        Ok(r.unwrap())
     }
 
     pub fn query(
@@ -285,8 +266,10 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
-        let q = if updates.len() > 0 {
-            format!(
+        let (entry_id, mut entry) = if updates.len() == 0 {
+            Entry::get_by_name_without_topics(&self.conn, old_name)?
+        } else {
+            let q = format!(
                 "
                 UPDATE rlist
                 SET {u}
@@ -294,119 +277,58 @@ impl RList {
                 RETURNING *;
                 ",
                 u = updates.join(", ")
-            )
-        } else {
-            "SELECT * FROM rlist WHERE name = :old_name".to_string()
-        };
+            );
+            let mut stmt = self.conn.prepare(q)?;
+            stmt.bind_iter(bindings)?;
+            if let sqlite::State::Done = stmt.next()? {
+                return Err(anyhow::anyhow!(
+                    "Could not get entry with name: {}",
+                    old_name.as_str()
+                ));
+            }
 
-        let mut stmt = self.conn.prepare(q)?;
-
-        stmt.bind_iter(bindings)?;
-
-        if let sqlite::State::Row = stmt.next()? {
+            //? would it be feasable to create a query like: read_sqlite_response!(i64 entry_id, String name, String url, String author, String added)
+            //? that did the same thing as the rows below?
             let entry_id = stmt.read::<i64, _>("entry_id")?;
             let name = stmt.read::<String, _>("name")?;
             let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
+            let author = opt_from_sql(stmt.read::<String, _>("author")?);
             let added = stmt.read::<String, _>("added")?;
 
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
+            (
+                entry_id,
+                Entry::new(name, url, author, Vec::new(), Some(added)),
+            )
+        };
 
-            if clear_topics || topics.is_some() {
-                let q = "DELETE FROM rlist_has_topic WHERE entry_id = :entry_id;";
-                let mut rm_topic_stmt = self.conn.prepare(q)?;
-                rm_topic_stmt.bind((":entry_id", entry_id))?;
-                rm_topic_stmt.next()?;
-            }
-
-            // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
-            // --topics removes all topics associated with the entry and creates the new ones, whilst --add-topics just appends some topics
-
-            let topics_to_add = if topics.is_some() { topics } else { add_topics };
-
-            if topics_to_add.is_some() {
-                let topics = topics_to_add.unwrap();
-                let q = format!(
-                    "INSERT INTO topics (name) VALUES {} 
-                    ON CONFLICT (name) DO UPDATE SET name=name 
-                    RETURNING topic_id;",
-                    (0..topics.len())
-                        .map(|e| "(?)")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                let mut topics_stmt = self.conn.prepare(q)?;
-
-                topics_stmt
-                    .bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
-
-                while let sqlite::State::Row = topics_stmt.next()? {
-                    let topic_id = topics_stmt.read::<i64, _>("topic_id")?;
-                    let q = "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES (:entry_id, :topic_id)
-                    ON CONFLICT (entry_id, topic_id) DO UPDATE SET entry_id=entry_id;";
-                    let mut link_topics_stmt = self.conn.prepare(q)?;
-                    link_topics_stmt
-                        .bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
-                    link_topics_stmt.next()?;
-                }
-            }
-
-            if remove_topics.is_some() {
-                let topics = remove_topics.unwrap();
-                let q = format!(
-                    "DELETE FROM rlist_has_topic 
-                    WHERE entry_id = ?
-                        AND topic_id IN (
-                            SELECT topic_id FROM topics WHERE name IN ({})
-                    ) RETURNING *;",
-                    (0..topics.len())
-                        .map(|_e| "?")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-
-                let mut topics_stmt = self.conn.prepare(q)?;
-
-                let bindings = [(1, sqlite::Value::from(entry_id))].into_iter().chain(
-                    topics
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| (i + 2, sqlite::Value::from(t.as_str()))),
-                );
-
-                topics_stmt.bind_iter(bindings)?;
-                topics_stmt.next()?;
-            }
-
-            let q = "
-            SELECT 
-                t.name AS topic 
-            FROM rlist_has_topic AS rht
-                JOIN topics AS t ON t.topic_id = rht.topic_id
-            WHERE rht.entry_id = :entry_id;";
-
-            let mut get_topics_stmt = self.conn.prepare(q)?;
-            get_topics_stmt.bind((":entry_id", entry_id))?;
-
-            let mut total_topics = Vec::new();
-            while let sqlite::State::Row = get_topics_stmt.next()? {
-                let topic = get_topics_stmt.read::<String, _>("topic")?;
-                total_topics.push(topic);
-            }
-            let e = Entry::new(name, url, author, total_topics, Some(added));
-
-            return Ok(e);
+        if clear_topics || topics.is_some() {
+            Entry::unlink_all_topics(&self.conn, entry_id)?;
         }
-        Err(anyhow::anyhow!(
-            "Something bad happended while updating the entry."
-        ))
+
+        // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
+        // --topics removes all topics associated with the entry and creates the new ones, whilst --add-topics just appends some topics
+        let topics_to_add = if topics.is_some() { topics } else { add_topics };
+
+        if topics_to_add.is_some() {
+            let t = topics_to_add.unwrap();
+            let topic_ids = Topic::create_many(&self.conn, &t)?;
+            Entry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+        }
+
+        if remove_topics.is_some() {
+            Entry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
+        }
+
+        let total_topics = Topic::get_related_to(&self.conn, entry_id)?
+            .into_iter()
+            .map(|(_i, e)| e)
+            .collect();
+
+        entry.set_topics(total_topics);
+
+        Ok(entry)
     }
 
-    //let old_entries = rlist.remove_by_topics(topics.unwrap())?;
     pub fn remove_by_topics(&self, topics: Vec<String>) -> Result<Vec<Entry>> {
         let mut res = Vec::new();
         for topic in topics {
@@ -439,22 +361,15 @@ impl RList {
         while let sqlite::State::Row = stmt.next()? {
             let name = stmt.read::<String, _>("name")?;
             let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
+            let author = opt_from_sql(stmt.read::<String, _>("author")?);
+            let added = stmt.read::<String, _>("added")?;
 
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
             //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
-            let e = Entry::new(name, url, author, Vec::new(), Some(String::new()));
+            let e = Entry::new(name, url, author, Vec::new(), Some(added));
             res.push(e);
         }
 
-        let q = "DELETE FROM topics WHERE topic_id = :topic_id";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic_id", topic_id))?;
-        stmt.next()?;
+        _ = Topic::delete_by_id(&self.conn, topic_id)?;
 
         Ok(res)
     }
@@ -464,4 +379,31 @@ fn dt_to_string(dt: DateTimeUtc) -> String {
     chrono::DateTime::<chrono::Local>::from(dt.0)
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
+}
+
+pub trait ToSQL {
+    fn to_sql(self) -> String;
+}
+
+impl<T> ToSQL for Option<T>
+where
+    T: ToString + From<String>,
+{
+    fn to_sql(self) -> String {
+        match self {
+            Some(v) => v.to_string(),
+            None => "NULL".to_string(),
+        }
+    }
+}
+
+pub(crate) fn opt_from_sql<T, R>(repr: R) -> Option<T>
+where
+    T: From<String>,
+    R: AsRef<str>,
+{
+    match repr.as_ref() {
+        "NULL" => None,
+        o => Some(o.to_string().into()),
+    }
 }

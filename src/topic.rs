@@ -8,7 +8,7 @@ impl Topic {
         VALUES (:topic) 
         ON CONFLICT (name) DO UPDATE SET name=name 
         RETURNING topic_id;";
-        
+
         let mut stmt = conn.prepare(q)?;
 
         stmt.bind((":topic", topic.as_ref()))?;
@@ -18,18 +18,22 @@ impl Topic {
             return Ok(topic_id);
         }
 
-        Err(anyhow::anyhow!("There was an error creating the topic: {}", topic.as_ref()))
+        Err(anyhow::anyhow!(
+            "There was an error creating the topic: {}",
+            topic.as_ref()
+        ))
     }
 
-    pub(crate) fn create_many(conn: &sqlite::Connection, topics: &Vec<impl AsRef<str>>) -> Result<Vec<i64>> {
+    pub(crate) fn create_many(
+        conn: &sqlite::Connection,
+        topics: &Vec<impl AsRef<str>>,
+    ) -> Result<Vec<i64>> {
         let q = format!(
             "INSERT INTO topics (name) 
             VALUES {} 
             ON CONFLICT (name) DO UPDATE SET name=name 
             RETURNING topic_id;",
-            topics.iter().map(|_t| "(?)")
-                .collect::<Vec<_>>()
-                .join(", "),
+            topics.iter().map(|_t| "(?)").collect::<Vec<_>>().join(", "),
         );
         let mut stmt = conn.prepare(q)?;
 
@@ -43,5 +47,34 @@ impl Topic {
         }
 
         Ok(res)
+    }
+
+    //TODO this should maybe return Ok(None) if an entry with that entry_id does not exist (?)
+    pub(crate) fn get_related_to(
+        conn: &sqlite::Connection,
+        entry_id: i64,
+    ) -> Result<Vec<(i64, String)>> {
+        let q = "SELECT t.name AS topic, t.topic_id AS id FROM topics AS t JOIN rlist_has_topic AS rht ON rht.topic_id = t.topic_id WHERE rht.entry_id = :entry_id;";
+        let mut stmt = conn.prepare(q)?;
+        stmt.bind((":entry_id", entry_id))?;
+        let mut res = Vec::new();
+        while let sqlite::State::Row = stmt.next()? {
+            let id = stmt.read::<i64, _>("id")?;
+            let topic = stmt.read::<String, _>("topic")?;
+            res.push((id, topic));
+        }
+
+        Ok(res)
+    }
+
+    pub(crate) fn delete_by_id(conn: &sqlite::Connection, topic_id: i64) -> Result<Option<String>> {
+        let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";
+        let mut stmt = conn.prepare(q)?;
+        stmt.bind((":topic_id", topic_id))?;
+        if let sqlite::State::Done = stmt.next()? {
+            return Ok(None);
+        }
+        let name = stmt.read::<String, _>("name")?;
+        Ok(Some(name))
     }
 }

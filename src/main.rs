@@ -17,8 +17,8 @@ use rlist::OrderBy;
 use crate::{entry::Entry, rlist::RList};
 
 mod entry;
-mod rlist;
 mod topic;
+mod rlist;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -131,7 +131,7 @@ fn main() -> anyhow::Result<()> {
             if name.is_some() {
                 let old_entry = rlist.remove_by_name(name.unwrap())?;
                 print!("Removed entry: \n");
-                old_entry.pretty_print();
+                old_entry.pretty_print_long();
                 println!();
             } else if topics.is_some() {
                 let old_entries = rlist.remove_by_topics(topics.unwrap())?;
