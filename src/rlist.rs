@@ -6,6 +6,7 @@ use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
 
 use crate::read_sql_response;
 use crate::utils::{opt_from_sql, dt_to_string};
+use crate::db::{topic::DBTopic, entry::DBEntry};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -80,19 +81,19 @@ impl RList {
     }
 
     pub fn add(&self, entry: Entry) -> Result<bool> {
-        let entry_id = Entry::create(&self.conn, entry.name(), entry.url(), entry.author())?;
+        let entry_id = DBEntry::create(&self.conn, entry.name(), entry.url(), entry.author())?;
 
         let topics = entry.topics();
         if topics.len() > 0 {
-            let topic_ids = Topic::create_many(&self.conn, topics)?;
-            Entry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+            let topic_ids = DBTopic::create_many(&self.conn, topics)?;
+            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
 
         Ok(true)
     }
 
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
-        let r = Entry::remove_by_name(&self.conn, name.clone())?;
+        let r = DBEntry::remove_by_name(&self.conn, name.clone())?;
         if r.is_none() {
             return Err(anyhow::anyhow!("No entry found with name: {name}"));
         }
@@ -259,7 +260,7 @@ impl RList {
         }
 
         let (entry_id, mut entry) = if updates.len() == 0 {
-            Entry::get_by_name_without_topics(&self.conn, old_name)?
+            DBEntry::get_by_name_without_topics(&self.conn, old_name)?
         } else {
             let q = format!(
                 "
@@ -289,7 +290,7 @@ impl RList {
         };
 
         if clear_topics || topics.is_some() {
-            Entry::unlink_all_topics(&self.conn, entry_id)?;
+            DBEntry::unlink_all_topics(&self.conn, entry_id)?;
         }
 
         // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
@@ -298,15 +299,15 @@ impl RList {
 
         if topics_to_add.is_some() {
             let t = topics_to_add.unwrap();
-            let topic_ids = Topic::create_many(&self.conn, &t)?;
-            Entry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+            let topic_ids = DBTopic::create_many(&self.conn, &t)?;
+            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
 
         if remove_topics.is_some() {
-            Entry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
+            DBEntry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
         }
 
-        let total_topics = Topic::get_related_to(&self.conn, entry_id)?
+        let total_topics = DBTopic::get_related_to(&self.conn, entry_id)?
             .into_iter()
             .map(|(_i, e)| e)
             .collect();
@@ -356,7 +357,7 @@ impl RList {
             res.push(e);
         }
 
-        _ = Topic::delete_by_id(&self.conn, topic_id)?;
+        _ = DBTopic::delete_by_id(&self.conn, topic_id)?;
 
         Ok(res)
     }

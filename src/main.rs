@@ -20,6 +20,7 @@ mod entry;
 mod topic;
 mod rlist;
 mod utils;
+mod db;
 
 #[derive(Parser, Debug)]
 struct Args {
