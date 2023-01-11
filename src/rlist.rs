@@ -46,15 +46,17 @@ pub struct RList {
 }
 
 impl RList {
+
+    /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
     pub fn init() -> Result<Self> {
         let home_dir_path =
             dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
-        let home_dir = Path::new(home_dir_path.as_os_str());
-        let rlist_dir = home_dir.join(Path::new("rlist"));
+        let rlist_dir = Path::new(home_dir_path.as_os_str()).join("rlist");
         std::fs::create_dir_all(&rlist_dir)?;
-        let p = rlist_dir.join(Path::new("rlist.sqlite"));
+        let p = rlist_dir.join("rlist.sqlite");
 
         let conn = sqlite::open(p)?;
+
         let q = "
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS rlist (
@@ -76,21 +78,28 @@ impl RList {
             FOREIGN KEY (topic_id) REFERENCES topics (topic_id) ON UPDATE CASCADE ON DELETE CASCADE
         );";
         conn.execute(q)?;
+
         Ok(Self { conn })
     }
 
-    pub fn add(&self, entry: Entry) -> Result<bool> {
-        let entry_id = DBEntry::create(&self.conn, entry.name(), entry.url(), entry.author())?;
+    /// Adds the entry to the database. Returns Ok(()) if the entry was added
+    pub fn add(&self, entry: Entry) -> Result<()> {
+        let entry_id = DBEntry::create(
+            &self.conn,
+            entry.name.as_str(),
+            entry.url.as_str(),
+            entry.author.as_deref(),
+        )?;
 
-        let topics = entry.topics();
-        if topics.len() > 0 {
-            let topic_ids = DBTopic::create_many(&self.conn, topics)?;
+        if entry.topics.len() > 0 {
+            let topic_ids = DBTopic::create_many(&self.conn, &entry.topics)?;
             DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
 
-        Ok(true)
+        Ok(())
     }
 
+    /// Removes the entry by name. Returns Ok(the old entry if it existed)
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
         let r = DBEntry::remove_by_name(&self.conn, name.clone())?;
         if r.is_none() {
@@ -111,9 +120,6 @@ impl RList {
         to: Option<DateTimeUtc>,
         or: bool,
     ) -> Result<Vec<Entry>> {
-        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author),
-        //TODO and then the ones with author == NULL
-
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
         if query.is_some() {
@@ -179,9 +185,9 @@ impl RList {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
 
-            if let Some(pos) = res.iter().position(|e| e.name() == name) {
+            if let Some(pos) = res.iter().position(|e| e.name == name) {
                 if topic.is_some() {
-                    res[pos].add_topic(topic.clone().unwrap());
+                    res[pos].topics.push(topic.unwrap());
                 }
             } else {
                 read_sql_response!(stmt, url => String, added => String, author => String);
@@ -200,7 +206,7 @@ impl RList {
             res = res
                 .into_iter()
                 .filter(|entry| {
-                    let entry_topics_set = entry.topics().iter().collect::<HashSet<_>>();
+                    let entry_topics_set = entry.topics.iter().collect::<HashSet<_>>();
 
                     let intersection_len = entry_topics_set
                         .intersection(&required_topics_set)
@@ -304,12 +310,10 @@ impl RList {
             DBEntry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
         }
 
-        entry.set_topics(
-            DBTopic::get_related_to(&self.conn, entry_id)?
-                .into_iter()
-                .map(|(_i, e)| e)
-                .collect(),
-        );
+        entry.topics = DBTopic::get_related_to(&self.conn, entry_id)?
+            .into_iter()
+            .map(|(_i, e)| e)
+            .collect();
 
         Ok(entry)
     }
@@ -340,7 +344,7 @@ impl RList {
             FROM rlist_has_topic 
             WHERE topic_id = :topic_id
         ) RETURNING *;";
-        
+
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic_id", topic_id))?;
 

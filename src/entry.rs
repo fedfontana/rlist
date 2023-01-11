@@ -5,11 +5,11 @@ use crate::topic::Topic;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entry {
-    name: String,
-    url: String,
-    author: Option<String>,
-    topics: Vec<String>,
-    added: String,
+    pub name: String,
+    pub url: String,
+    pub author: Option<String>,
+    pub topics: Vec<String>,
+    pub added: String,
 }
 
 impl Entry {
@@ -29,34 +29,10 @@ impl Entry {
         }
     }
 
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-
-    pub fn url(&self) -> &str {
-        self.url.as_str()
-    }
-
-    pub fn author(&self) -> Option<&str> {
-        self.author.as_deref()
-    }
-
-    pub fn topics(&self) -> &Vec<String> {
-        &self.topics
-    }
-
-    pub fn add_topic(&mut self, topic: String) {
-        self.topics.push(topic)
-    }
-
-    pub fn set_topics(&mut self, topics: Vec<String>) {
-        self.topics = topics;
-    }
-
-    pub fn pretty_print_long(&self) {
-        let topics_row = if self.topics.len() > 0 {
+    pub fn pretty_print(&self, long: bool) {
+        let topics_row = if long && self.topics.len() > 0 {
             format!(
-                "Topics: {}\n",
+                "\nTopics: {}",
                 self.topics
                     .iter()
                     .map(|t| Topic::pretty_print(t.as_ref()))
@@ -64,26 +40,18 @@ impl Entry {
                     .join(", ")
             )
         } else {
-            "".to_string()
+            String::new()
+        };
+
+        let added_row = if long {
+            format!("\nAdded on {}", self.added)
+        } else {
+            String::new()
         };
 
         println!(
-            "{name}: {url}{maybe_author}\n{topics_row}Added on {added}",
-            name = self.name.bold().truecolor(255, 165, 0),
-            url = self.url.bright_blue().underline(),
-            maybe_author = self
-                .author
-                .as_ref()
-                .map(|v| format!(" by {}", v.green()))
-                .unwrap_or("".into()),
-            added = self.added,
-        );
-    }
-
-    pub fn pretty_print(&self) {
-        println!(
-            "{name}: {url}{maybe_author}",
-            name = self.name.bold().truecolor(255, 165, 0),
+            "{name}: {url}{maybe_author}{topics_row}{added_row}",
+            name = self.name.bold().truecolor(255, 165, 0), // orange
             url = self.url.bright_blue().underline(),
             maybe_author = self
                 .author

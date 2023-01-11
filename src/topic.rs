@@ -3,7 +3,7 @@ use std::{collections::hash_map::DefaultHasher, hash::Hasher};
 use colored::Colorize;
 use std::hash::Hash;
 
-use crate::{utils::COLORS};
+use crate::utils::COLORS;
 
 pub(crate) struct Topic {}
 

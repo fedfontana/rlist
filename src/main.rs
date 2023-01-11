@@ -4,13 +4,13 @@ use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
 
-mod entry;
-mod topic;
-mod rlist;
-mod utils;
 mod db;
+mod entry;
+mod rlist;
+mod topic;
+mod utils;
 
-/// Reading list manager for the command line 
+/// Reading list manager for the command line
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -142,19 +142,15 @@ fn main() -> anyhow::Result<()> {
             ..
         } => {
             let e = Entry::new(name, url, author, topics, None);
-            if rlist.add(e)? {
-                println!("Entry added to rlist");
-            } else {
-                println!(
-                    "Could not add entry to rlist cause an entry with the same id already exists"
-                );
-            }
+
+            rlist.add(e)?;
+            println!("Entry added to rlist");
         }
         Action::Remove { name, topics } => {
             if name.is_some() {
                 let old_entry = rlist.remove_by_name(name.unwrap())?;
                 print!("Removed entry: \n");
-                old_entry.pretty_print_long();
+                old_entry.pretty_print(true);
                 println!();
             } else if topics.is_some() {
                 let old_entries = rlist.remove_by_topics(topics.unwrap())?;
@@ -164,13 +160,14 @@ fn main() -> anyhow::Result<()> {
                 }
                 println!("Remove these entries:");
                 old_entries.iter().for_each(|e| {
-                    e.pretty_print();
+                    e.pretty_print(false);
                     println!();
                 });
                 if old_entries.len() > 1 {
                     println!("Removed a total of {} entries", old_entries.len());
                 }
             } else {
+                // If neither name or topics is passed to the cli, return err
                 return Err(anyhow::anyhow!("You gotta select something to delete boi"));
             }
         }
@@ -195,7 +192,7 @@ fn main() -> anyhow::Result<()> {
                 remove_topics,
             )?;
             println!("The new entry is:");
-            new_entry.pretty_print_long();
+            new_entry.pretty_print(true);
             println!();
         }
         Action::List {
@@ -223,28 +220,13 @@ fn main() -> anyhow::Result<()> {
             };
 
             let entries = rlist.query(
-                query,
-                topics,
-                author,
-                url,
-                sort_by,
-                desc,
-                opt_from,
-                opt_to,
-                or,
+                query, topics, author, url, sort_by, desc, opt_from, opt_to, or,
             )?;
 
-            if long {
-                entries.iter().for_each(|e| {
-                    e.pretty_print_long();
-                    println!();
-                });
-            } else {
-                entries.iter().for_each(|e| {
-                    e.pretty_print();
-                    println!();
-                });
-            }
+            entries.iter().for_each(|e| {
+                e.pretty_print(long);
+                println!();
+            });
         }
     }
     Ok(())
