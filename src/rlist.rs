@@ -95,20 +95,23 @@ impl RList {
     }
 
     /// Adds the entry to the database. Returns Ok(()) if the entry was added
-    pub fn add(&self, entry: Entry) -> Result<()> {
-        let entry_id = DBEntry::create(
-            &self.conn,
-            entry.name.as_str(),
-            entry.url.as_str(),
-            entry.author.as_deref(),
-        )?;
+    pub fn add(
+        &self,
+        name: String,
+        url: String,
+        author: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<Entry> {
+        let (entry_id, mut entry) =
+            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref())?;
 
-        if entry.topics.len() > 0 {
-            let topic_ids = DBTopic::create_many(&self.conn, &entry.topics)?;
+        if topics.len() > 0 {
+            let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
             DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
+        entry.topics = topics;
 
-        Ok(())
+        Ok(entry)
     }
 
     /// Removes the entry by name. Returns Ok(the old entry if it existed)
@@ -398,7 +401,7 @@ impl RList {
     /// an old backup of the reading list, starting from a clean db.
     pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
         for e in entries {
-            let entry_id = DBEntry::create(
+            let (entry_id, _entry) = DBEntry::create(
                 &self.conn,
                 e.name.as_str(),
                 e.url.as_str(),

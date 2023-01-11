@@ -41,27 +41,42 @@ impl DBEntry {
         Ok(())
     }
 
-    /// Creates a new entry in the db. Does not handle topics. Returns the entry's new entry_id
+    /// Creates a new entry in the db. Does not handle topics. Returns a tuple containing the entry_id and the entry
     pub(crate) fn create(
         conn: &sqlite::Connection,
         name: &str,
         url: &str,
         author: Option<&str>,
-    ) -> Result<i64> {
-        let q= "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING entry_id";
+    ) -> Result<(i64, Entry)> {
+        let q = "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING *";
         let mut stmt = conn.prepare(q)?;
-        stmt.bind(&[(":name", name), (":url", url), (":author", author.to_sql().as_ref())][..])?;
+        stmt.bind(
+            &[
+                (":name", name),
+                (":url", url),
+                (":author", author.to_sql().as_ref()),
+            ][..],
+        )?;
 
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Could not insert entry with name: {name}"));
         }
 
-        let entry_id = stmt.read::<i64, _>("entry_id")?;
-        Ok(entry_id)
+        read_sql_response!(stmt, entry_id => i64, added => String);
+        Ok((
+            entry_id,
+            Entry::new(
+                name.to_string(),
+                url.to_string(),
+                author.map(|s| s.into()),
+                vec![],
+                Some(added),
+            ),
+        ))
     }
 
     //TODO maybe i should just return an Err("Not found") instead of Ok(None)
-    //? is it possible to write a subquery in the RETURNING clause? 
+    //? is it possible to write a subquery in the RETURNING clause?
     //? if yes, then i could also return all of the topics from the delete clause?
 
     /// Removes the entry with name = `name`.
@@ -81,11 +96,11 @@ impl DBEntry {
             .into_iter()
             .map(|(_i, t)| t)
             .collect::<Vec<_>>();
-        
+
         let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":entry_name", name.as_ref()))?;
-        
+
         if let sqlite::State::Done = stmt.next()? {
             return Ok(None);
         }
@@ -93,22 +108,19 @@ impl DBEntry {
         read_sql_response!(stmt, name => String, url => String, added => String, author => String);
         let author = opt_from_sql(author);
 
-        return Ok(Some(Entry::new(
-            name,
-            url,
-            author,
-            topics,
-            Some(added),
-        )));
+        return Ok(Some(Entry::new(name, url, author, topics, Some(added))));
     }
 
     /// Gets an entry_id given a name.
     /// Returns None if no entry with that name was found.
-    pub(crate) fn get_id_from_name(conn: &sqlite::Connection, name: impl AsRef<str>) -> Result<Option<i64>> {
+    pub(crate) fn get_id_from_name(
+        conn: &sqlite::Connection,
+        name: impl AsRef<str>,
+    ) -> Result<Option<i64>> {
         let q = "SELECT entry_id FROM rlist WHERE name=:name;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":name", name.as_ref()))?;
-        if let sqlite::State::Done =  stmt.next()? {
+        if let sqlite::State::Done = stmt.next()? {
             return Ok(None);
         }
         let entry_id = stmt.read::<i64, _>("entry_id")?;
@@ -117,8 +129,7 @@ impl DBEntry {
 
     /// Removes the entry with `entry_id` from all of its topics.
     pub(crate) fn unlink_all_topics(conn: &sqlite::Connection, entry_id: i64) -> Result<()> {
-        let q = 
-            "DELETE FROM rlist_has_topic 
+        let q = "DELETE FROM rlist_has_topic 
                     WHERE entry_id = :entry_id;";
 
         let mut stmt = conn.prepare(q)?;
@@ -130,7 +141,11 @@ impl DBEntry {
     }
 
     /// Removes the entry with id = `entry_id` from all of the topics in `topics`
-    pub(crate) fn unlink_topics_by_name(conn: &sqlite::Connection, entry_id: i64, topics: Vec<String>) -> Result<()> {
+    pub(crate) fn unlink_topics_by_name(
+        conn: &sqlite::Connection,
+        entry_id: i64,
+        topics: Vec<String>,
+    ) -> Result<()> {
         let q = format!(
             "DELETE FROM rlist_has_topic 
                     WHERE entry_id = ?
@@ -159,19 +174,28 @@ impl DBEntry {
     }
 
     /// Returns the tuple (entry_id, Entry) containing the entry with name = `name`
-    pub(crate) fn get_by_name_without_topics(conn: &sqlite::Connection, name: impl AsRef<str>) -> Result<(i64, crate::Entry)> {
+    pub(crate) fn get_by_name_without_topics(
+        conn: &sqlite::Connection,
+        name: impl AsRef<str>,
+    ) -> Result<(i64, crate::Entry)> {
         let q = "SELECT * FROM rlist WHERE name = :name;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":name", name.as_ref()))?;
 
         if let sqlite::State::Done = stmt.next()? {
-            return Err(anyhow::anyhow!("Could not find rlist entry with name: {}", name.as_ref()));
+            return Err(anyhow::anyhow!(
+                "Could not find rlist entry with name: {}",
+                name.as_ref()
+            ));
         }
 
         read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
         let author = opt_from_sql(author);
-        
-        Ok((entry_id, Entry::new(name, url, author, Vec::new(), Some(added))))
+
+        Ok((
+            entry_id,
+            Entry::new(name, url, author, Vec::new(), Some(added)),
+        ))
     }
 
     /// Returns all entries with all of their topics

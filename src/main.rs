@@ -159,10 +159,9 @@ fn main() -> anyhow::Result<()> {
             url,
             topics,
         } => {
-            let e = Entry::new(name, url, author, topics, None);
-
-            rlist.add(e)?;
-            println!("Entry added to rlist");
+            let entry = rlist.add(name, url, author, topics)?;
+            println!("Entry added to rlist:");
+            entry.pretty_print(true);
         }
         Action::Remove { name, topics } => {
             if name.is_some() {
