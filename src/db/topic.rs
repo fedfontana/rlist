@@ -26,6 +26,8 @@ impl DBTopic {
     //     ))
     // }
 
+    /// Creates all of the topics contained in `topics`. If a topic already exists, it is ignored.
+    /// Returns the list of each ot the topics' ids (in the same order as in `topics`)
     pub(crate) fn create_many(
         conn: &sqlite::Connection,
         topics: &Vec<impl AsRef<str>>,
@@ -52,11 +54,19 @@ impl DBTopic {
     }
 
     //TODO this should maybe return Ok(None) if an entry with that entry_id does not exist (?)
+
+    /// Returns the list of tuples containing the ids and names of all of the topics related to the entry with id = `entry_id`
     pub(crate) fn get_related_to(
         conn: &sqlite::Connection,
         entry_id: i64,
     ) -> Result<Vec<(i64, String)>> {
-        let q = "SELECT t.name AS topic, t.topic_id AS id FROM topics AS t JOIN rlist_has_topic AS rht ON rht.topic_id = t.topic_id WHERE rht.entry_id = :entry_id;";
+        let q = "SELECT 
+            t.name AS topic, 
+            t.topic_id AS id 
+        FROM topics AS t 
+        JOIN rlist_has_topic AS rht 
+            ON rht.topic_id = t.topic_id 
+        WHERE rht.entry_id = :entry_id;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":entry_id", entry_id))?;
 
@@ -70,6 +80,7 @@ impl DBTopic {
         Ok(res)
     }
 
+    /// Deletes a topic by its id. Returns None if no topic was found, else returns its name
     pub(crate) fn delete_by_id(conn: &sqlite::Connection, topic_id: i64) -> Result<Option<String>> {
         let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";
         let mut stmt = conn.prepare(q)?;

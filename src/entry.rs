@@ -29,6 +29,9 @@ impl Entry {
         }
     }
 
+    /// Prints the entry to stdout.
+    /// If `!long`, then it will only print `name: url [by author]`
+    /// otherwise, it will also print the topics and `self.added`
     pub fn pretty_print(&self, long: bool) {
         let topics_row = if long && self.topics.len() > 0 {
             format!(

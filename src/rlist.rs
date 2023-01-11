@@ -48,6 +48,7 @@ pub struct RList {
 
 impl RList {
     /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
+    /// Forwards the errors raised by the called functions, such as std::fs and sqlite ones.
     pub fn init(db_file_path: Option<PathBuf>) -> Result<Self> {
         let p = if db_file_path.is_none() {
             let home_dir_path =
@@ -119,6 +120,13 @@ impl RList {
         Ok(r.unwrap())
     }
 
+    /// Returns the list of entries that match the query.
+    /// If query is set, then it will be contained in each of the entries' names
+    /// If author is set, then only entries with an author that contains this value will be returned
+    /// Same with url
+    /// If topics is set, then the returned enties will be contained in __all__ of those topics. If `or` is set to true,
+    /// then the function will return the entries that are in __at least one__ of the topics.
+    /// `from` and `to` control the range of the dates in which the returned entries were created.
     pub fn query(
         &self,
         query: Option<String>,
@@ -196,11 +204,13 @@ impl RList {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
 
+            // If the entry is already in the vector, then just add the current topic to the entry's topics
             if let Some(pos) = res.iter().position(|e| e.name == name) {
                 if topic.is_some() {
                     res[pos].topics.push(topic.unwrap());
                 }
             } else {
+                // else create a new entry
                 read_sql_response!(stmt, url => String, added => String, author => String);
                 let author = opt_from_sql(author);
 
@@ -211,6 +221,7 @@ impl RList {
             }
         }
 
+        // Filter out the topics based on topics
         if let Some(topics) = topics {
             let required_topics_set = topics.iter().collect::<HashSet<_>>();
 
@@ -247,6 +258,7 @@ impl RList {
         clear_topics: bool,
         remove_topics: Option<Vec<String>>,
     ) -> Result<Entry> {
+        // If no edit is set, then return an error
         if new_name.is_none()
             && author.is_none()
             && url.is_none()
@@ -275,9 +287,11 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
+        // If there are no updates on the entry to be made, then just get the entry and its id.
         let (entry_id, mut entry) = if updates.len() == 0 {
             DBEntry::get_by_name_without_topics(&self.conn, old_name)?
         } else {
+            // else perform the updates and construct a new Entry with the resulting data
             let q = format!(
                 "UPDATE rlist
                 SET {u}
@@ -338,6 +352,7 @@ impl RList {
         Ok(res)
     }
 
+    /// Removes all of the entries that are in `topic` and returns them
     pub fn remove_by_topic(&self, topic: String) -> Result<Vec<Entry>> {
         let q = "SELECT topic_id FROM topics WHERE name = :topic;";
         let mut stmt = self.conn.prepare(q)?;
@@ -378,6 +393,9 @@ impl RList {
         DBEntry::get_all_complete(&self.conn)
     }
 
+    /// Creates all of the entries provided.
+    /// NOTE: currently stops at the first error (even on conflicts), so this can basically only be used when importing
+    /// an old backup of the reading list, starting from a clean db.
     pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
         for e in entries {
             let entry_id = DBEntry::create(

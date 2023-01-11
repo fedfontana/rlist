@@ -8,6 +8,7 @@ use crate::utils::{opt_from_sql, ToSQL};
 pub struct DBEntry {}
 
 impl DBEntry {
+    /// Associates the entry identified by `entry_id` to all of the topics identified by `topic_ids`
     pub(crate) fn associate_with_topics(
         conn: &sqlite::Connection,
         entry_id: i64,
@@ -40,6 +41,7 @@ impl DBEntry {
         Ok(())
     }
 
+    /// Creates a new entry in the db. Does not handle topics. Returns the entry's new entry_id
     pub(crate) fn create(
         conn: &sqlite::Connection,
         name: &str,
@@ -61,6 +63,9 @@ impl DBEntry {
     //TODO maybe i should just return an Err("Not found") instead of Ok(None)
     //? is it possible to write a subquery in the RETURNING clause? 
     //? if yes, then i could also return all of the topics from the delete clause?
+
+    /// Removes the entry with name = `name`.
+    /// Returns None when no entry with that name was found, else the old entry data, with all of its topics.
     pub(crate) fn remove_by_name(
         conn: &sqlite::Connection,
         name: impl AsRef<str>,
@@ -97,6 +102,8 @@ impl DBEntry {
         )));
     }
 
+    /// Gets an entry_id given a name.
+    /// Returns None if no entry with that name was found.
     pub(crate) fn get_id_from_name(conn: &sqlite::Connection, name: impl AsRef<str>) -> Result<Option<i64>> {
         let q = "SELECT entry_id FROM rlist WHERE name=:name;";
         let mut stmt = conn.prepare(q)?;
@@ -108,6 +115,7 @@ impl DBEntry {
         Ok(Some(entry_id))
     }
 
+    /// Removes the entry with `entry_id` from all of its topics.
     pub(crate) fn unlink_all_topics(conn: &sqlite::Connection, entry_id: i64) -> Result<()> {
         let q = 
             "DELETE FROM rlist_has_topic 
@@ -121,6 +129,7 @@ impl DBEntry {
         Ok(())
     }
 
+    /// Removes the entry with id = `entry_id` from all of the topics in `topics`
     pub(crate) fn unlink_topics_by_name(conn: &sqlite::Connection, entry_id: i64, topics: Vec<String>) -> Result<()> {
         let q = format!(
             "DELETE FROM rlist_has_topic 
@@ -149,6 +158,7 @@ impl DBEntry {
         Ok(())
     }
 
+    /// Returns the tuple (entry_id, Entry) containing the entry with name = `name`
     pub(crate) fn get_by_name_without_topics(conn: &sqlite::Connection, name: impl AsRef<str>) -> Result<(i64, crate::Entry)> {
         let q = "SELECT * FROM rlist WHERE name = :name;";
         let mut stmt = conn.prepare(q)?;
@@ -164,6 +174,7 @@ impl DBEntry {
         Ok((entry_id, Entry::new(name, url, author, Vec::new(), Some(added))))
     }
 
+    /// Returns all entries with all of their topics
     pub(crate) fn get_all_complete(conn: &sqlite::Connection) -> Result<Vec<Entry>> {
         let q = "
         SELECT 

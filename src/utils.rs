@@ -48,6 +48,7 @@ where
     }
 }
 
+/// Returns the given date `dt` to the format used by the db
 pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
     chrono::DateTime::<chrono::Local>::from(dt.0)
         .format("%Y-%m-%d %H:%M:%S")
