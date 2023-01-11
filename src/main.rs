@@ -23,6 +23,9 @@ struct Args {
     #[command(subcommand)]
     action: Option<Action>,
 
+    #[arg(long)]
+    db_file: Option<PathBuf>,
+
     /// Imports a set of entries from a yml file
     /// NOTE that this option is only meant to be used when starting from an empty reading list as it will error out at the first conflict
     #[arg(long)]
@@ -147,7 +150,7 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let rlist = RList::init()?;
+    let rlist = RList::init(args.db_file)?;
 
     if let Some(export_path) = args.export {
         let entries = rlist.dump_all()?;

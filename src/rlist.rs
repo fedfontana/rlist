@@ -1,6 +1,7 @@
 use crate::entry::Entry;
 use anyhow::Result;
 use dateparser::DateTimeUtc;
+use std::path::PathBuf;
 use std::{collections::HashSet, path::Path, str::FromStr};
 
 use crate::db::{entry::DBEntry, topic::DBTopic};
@@ -46,14 +47,24 @@ pub struct RList {
 }
 
 impl RList {
-
     /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
-    pub fn init() -> Result<Self> {
-        let home_dir_path =
-            dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
-        let rlist_dir = Path::new(home_dir_path.as_os_str()).join("rlist");
-        std::fs::create_dir_all(&rlist_dir)?;
-        let p = rlist_dir.join("rlist.sqlite");
+    pub fn init(db_file_path: Option<PathBuf>) -> Result<Self> {
+        let p = if db_file_path.is_none() {
+            let home_dir_path =
+                dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
+            let rlist_dir = Path::new(home_dir_path.as_os_str()).join("rlist");
+            std::fs::create_dir_all(&rlist_dir)?;
+
+            rlist_dir.join("rlist.sqlite")
+        } else {
+            let pb = db_file_path.unwrap();
+            let rlist_dir = Path::new(pb.as_os_str());
+            std::fs::create_dir_all(&rlist_dir.parent().ok_or(anyhow::anyhow!(
+                "Could not create directories needed to create the reading list"
+            ))?)?;
+
+            rlist_dir.to_path_buf()
+        };
 
         let conn = sqlite::open(p)?;
 
@@ -369,7 +380,12 @@ impl RList {
 
     pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
         for e in entries {
-            let entry_id = DBEntry::create(&self.conn, e.name.as_str(), e.url.as_str(), e.author.as_deref())?;
+            let entry_id = DBEntry::create(
+                &self.conn,
+                e.name.as_str(),
+                e.url.as_str(),
+                e.author.as_deref(),
+            )?;
             let topic_ids = DBTopic::create_many(&self.conn, &e.topics)?;
             DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
