@@ -4,6 +4,8 @@ use chrono::DateTime;
 use dateparser::DateTimeUtc;
 use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
 
+use crate::utils::opt_from_sql;
+
 #[derive(Debug, Clone)]
 pub enum OrderBy {
     Name,
@@ -379,31 +381,4 @@ fn dt_to_string(dt: DateTimeUtc) -> String {
     chrono::DateTime::<chrono::Local>::from(dt.0)
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
-}
-
-pub trait ToSQL {
-    fn to_sql(self) -> String;
-}
-
-impl<T> ToSQL for Option<T>
-where
-    T: ToString + From<String>,
-{
-    fn to_sql(self) -> String {
-        match self {
-            Some(v) => v.to_string(),
-            None => "NULL".to_string(),
-        }
-    }
-}
-
-pub(crate) fn opt_from_sql<T, R>(repr: R) -> Option<T>
-where
-    T: From<String>,
-    R: AsRef<str>,
-{
-    match repr.as_ref() {
-        "NULL" => None,
-        o => Some(o.to_string().into()),
-    }
 }

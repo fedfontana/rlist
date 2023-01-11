@@ -7,7 +7,7 @@ use std::f32::consts::E;
 use std::hash::{Hash, Hasher};
 
 use crate::topic::Topic;
-use crate::rlist::{ToSQL, opt_from_sql};
+use crate::utils::{COLORS, opt_from_sql};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entry {
@@ -17,29 +17,6 @@ pub struct Entry {
     topics: Vec<String>,
     added: String,
 }
-
-const COLORS: [(u8, u8, u8); 20] = [
-    (200, 10, 20),
-    (125, 30, 20),
-    (130, 130, 10),
-    (10, 150, 120),
-    (220, 165, 0),
-    (207, 64, 207),
-    (255, 117, 43),
-    (38, 169, 173),
-    (114, 39, 219),
-    (219, 39, 78),
-    (60, 105, 230),
-    (60, 230, 130),
-    (5, 171, 74),
-    (105, 201, 14),
-    (15, 103, 135),
-    (161, 66, 51),
-    (120, 89, 6),
-    (245, 44, 44),
-    (230, 195, 20),
-    (5, 2, 207),
-];
 
 impl Entry {
     pub fn new(
