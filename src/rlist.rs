@@ -4,9 +4,9 @@ use chrono::DateTime;
 use dateparser::DateTimeUtc;
 use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
 
+use crate::db::{entry::DBEntry, topic::DBTopic};
 use crate::read_sql_response;
-use crate::utils::{opt_from_sql, dt_to_string};
-use crate::db::{topic::DBTopic, entry::DBEntry};
+use crate::utils::{dt_to_string, opt_from_sql};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -158,9 +158,9 @@ impl RList {
                 t.name AS topic 
             FROM rlist AS ls 
             LEFT OUTER JOIN rlist_has_topic AS rht 
-            ON ls.entry_id = rht.entry_id 
+                ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
-            ON t.topic_id = rht.topic_id
+                ON t.topic_id = rht.topic_id
             {}
             {sort}",
             if clauses.len() > 0 {
@@ -189,13 +189,7 @@ impl RList {
 
                 let topics = topic.map(|t| vec![t]).unwrap_or_default();
 
-                let entry = Entry::new(
-                    name.clone(),
-                    url,
-                    author,
-                    topics,
-                    Some(added),
-                );
+                let entry = Entry::new(name.clone(), url, author, topics, Some(added));
                 res.push(entry);
             }
         }
@@ -263,12 +257,10 @@ impl RList {
             DBEntry::get_by_name_without_topics(&self.conn, old_name)?
         } else {
             let q = format!(
-                "
-                UPDATE rlist
+                "UPDATE rlist
                 SET {u}
                 WHERE name = :old_name
-                RETURNING *;
-                ",
+                RETURNING *;",
                 u = updates.join(", ")
             );
             let mut stmt = self.conn.prepare(q)?;
@@ -307,12 +299,12 @@ impl RList {
             DBEntry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
         }
 
-        let total_topics = DBTopic::get_related_to(&self.conn, entry_id)?
-            .into_iter()
-            .map(|(_i, e)| e)
-            .collect();
-
-        entry.set_topics(total_topics);
+        entry.set_topics(
+            DBTopic::get_related_to(&self.conn, entry_id)?
+                .into_iter()
+                .map(|(_i, e)| e)
+                .collect(),
+        );
 
         Ok(entry)
     }
@@ -337,13 +329,13 @@ impl RList {
 
         let topic_id = stmt.read::<i64, _>("topic_id")?;
 
-        let q = "
-        DELETE FROM rlist 
+        let q = "DELETE FROM rlist 
         WHERE entry_id IN (
             SELECT entry_id 
             FROM rlist_has_topic 
             WHERE topic_id = :topic_id
         ) RETURNING *;";
+        
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic_id", topic_id))?;
 
@@ -362,4 +354,3 @@ impl RList {
         Ok(res)
     }
 }
-
