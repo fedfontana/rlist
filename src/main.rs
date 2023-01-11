@@ -1,3 +1,8 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use clap::{Parser, Subcommand};
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
@@ -14,8 +19,22 @@ mod utils;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
+    /// The subcommand to run when neither `--export` or `--import` are specified
     #[command(subcommand)]
-    action: Action,
+    action: Option<Action>,
+
+    #[arg(long)]
+    db_file: Option<PathBuf>,
+
+    /// Imports a set of entries from a yml file
+    /// NOTE that this option is only meant to be used when starting from an empty reading list as it will error out at the first conflict
+    #[arg(long)]
+    import: Option<PathBuf>,
+
+    /// Exports the contennt of the whole reading list into a yml file
+    /// Takes precedence over `--import`, meaning that only export will run if both import and export are specified
+    #[arg(long)]
+    export: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -131,9 +150,30 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let rlist = RList::init()?;
+    let rlist = RList::init(args.db_file)?;
 
-    match args.action {
+    if let Some(export_path) = args.export {
+        let entries = rlist.dump_all()?;
+        fs::create_dir_all(
+            Path::new(&export_path)
+                .parent()
+                .ok_or(anyhow::anyhow!("Could not create the export file"))?,
+        )?;
+        let content = serde_yaml::to_string(&entries)?;
+        fs::write(export_path, content)?;
+        return Ok(());
+    } else if let Some(import_path) = args.import {
+        let content = fs::read_to_string(import_path)?;
+        let entries: Vec<Entry> = serde_yaml::from_str(&content)?;
+        rlist.import(entries)?;
+        return Ok(());
+    }
+
+    if args.action.is_none() {
+        return Err(anyhow::anyhow!("Must provide a command"));
+    }
+
+    match args.action.unwrap() {
         Action::Add {
             name,
             author,
