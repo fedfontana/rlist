@@ -7,7 +7,7 @@ use std::f32::consts::E;
 use std::hash::{Hash, Hasher};
 
 use crate::topic::Topic;
-use crate::utils::{COLORS, opt_from_sql};
+use crate::utils::{COLORS, opt_from_sql, ToSQL};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entry {
@@ -59,23 +59,13 @@ impl Entry {
         self.topics = topics;
     }
 
-    fn pretty_print_topic<T>(topic: T) -> String
-    where
-        T: AsRef<str> + Hash + Colorize,
-    {
-        let mut hasher = DefaultHasher::new();
-        topic.hash(&mut hasher);
-        let c = COLORS[hasher.finish() as usize % COLORS.len()];
-        topic.on_truecolor(c.0, c.1, c.2).to_string()
-    }
-
     pub fn pretty_print_long(&self) {
         let topics_row = if self.topics.len() > 0 {
             format!(
                 "Topics: {}\n",
                 self.topics
                     .iter()
-                    .map(|t| Entry::pretty_print_topic(t.as_ref()))
+                    .map(|t| Topic::pretty_print(t.as_ref()))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -149,20 +139,14 @@ impl Entry {
     ) -> Result<i64> {
         let q= "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING entry_id";
         let mut stmt = conn.prepare(q)?;
-        let a = if let Some(a) = author {
-            a.as_ref()
-        } else {
-            "NULL"
-        };
+        stmt.bind(&[(":name", name), (":url", url), (":author", author.to_sql().as_ref())][..])?;
 
-        stmt.bind(&[(":name", name), (":url", url), (":author", a)][..])?;
-
-        if let sqlite::State::Row = stmt.next()? {
-            let entry_id = stmt.read::<i64, _>("entry_id")?;
-            return Ok(entry_id);
+        if let sqlite::State::Done = stmt.next()? {
+            return Err(anyhow::anyhow!("Could not insert entry with name: {name}"));
         }
 
-        Err(anyhow::anyhow!("Could not insert entry with name: {name}"))
+        let entry_id = stmt.read::<i64, _>("entry_id")?;
+        Ok(entry_id)
     }
 
     //TODO maybe i should just return an Err("Not found") instead of Ok(None)

@@ -1,3 +1,5 @@
+use dateparser::DateTimeUtc;
+
 pub(crate) const COLORS: [(u8, u8, u8); 20] = [
     (200, 10, 20),
     (125, 30, 20),
@@ -25,10 +27,7 @@ pub trait ToSQL {
     fn to_sql(self) -> String;
 }
 
-impl<T> ToSQL for Option<T>
-where
-    T: ToString + From<String>,
-{
+impl<'a> ToSQL for Option<&'a str> {
     fn to_sql(self) -> String {
         match self {
             Some(v) => v.to_string(),
@@ -36,6 +35,7 @@ where
         }
     }
 }
+
 
 pub(crate) fn opt_from_sql<T, R>(repr: R) -> Option<T>
 where
@@ -46,4 +46,10 @@ where
         "NULL" => None,
         o => Some(o.to_string().into()),
     }
+}
+
+pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
+    chrono::DateTime::<chrono::Local>::from(dt.0)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }

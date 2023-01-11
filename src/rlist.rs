@@ -1,4 +1,4 @@
-use crate::{entry::Entry, topic::Topic};
+use crate::{entry::Entry, topic::Topic, utils::dt_to_string};
 use anyhow::Result;
 use chrono::DateTime;
 use dateparser::DateTimeUtc;
@@ -127,17 +127,15 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
+        // SQLite format:  YYYY-MM-DD HH:MM:SS
         let opt_from = from.map(|dt| dt_to_string(dt));
         if let Some(from) = opt_from.as_deref() {
             clauses.push("ls.added >= :from");
-            // SQLite format:  YYYY-MM-DD HH:MM:SS
             bindings.push((":from", from.as_ref()));
         }
-
         let opt_to = to.map(|dt| dt_to_string(dt));
         if let Some(to) = opt_to.as_deref() {
             clauses.push("ls.added <= :to");
-            // SQLite format:  YYYY-MM-DD HH:MM:SS
             bindings.push((":to", to.as_ref()));
         }
 
@@ -185,23 +183,15 @@ impl RList {
                 }
             } else {
                 let url = stmt.read::<String, _>("url")?;
-                let maybe_author = stmt.read::<String, _>("author")?;
+                let author = opt_from_sql(stmt.read::<String, _>("author")?);
                 let added = stmt.read::<String, _>("added")?;
 
-                let topics = if topic.is_none() {
-                    vec![]
-                } else {
-                    vec![topic.unwrap()]
-                };
+                let topics = topic.map(|t| vec![t]).unwrap_or_default();
 
                 let entry = Entry::new(
                     name.clone(),
                     url,
-                    if maybe_author == "NULL" {
-                        None
-                    } else {
-                        Some(maybe_author)
-                    },
+                    author,
                     topics,
                     Some(added),
                 );
@@ -344,9 +334,11 @@ impl RList {
         let q = "SELECT topic_id FROM topics WHERE name = :topic;";
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic", topic.as_str()))?;
+
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Topic not in topics"));
         }
+
         let topic_id = stmt.read::<i64, _>("topic_id")?;
 
         let q = "
@@ -375,10 +367,4 @@ impl RList {
 
         Ok(res)
     }
-}
-
-fn dt_to_string(dt: DateTimeUtc) -> String {
-    chrono::DateTime::<chrono::Local>::from(dt.0)
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
 }
