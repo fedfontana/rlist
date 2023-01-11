@@ -109,6 +109,7 @@ impl RList {
         desc: bool,
         from: Option<DateTimeUtc>,
         to: Option<DateTimeUtc>,
+        or: bool,
     ) -> Result<Vec<Entry>> {
         //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author),
         //TODO and then the ones with author == NULL
@@ -201,11 +202,16 @@ impl RList {
                 .filter(|entry| {
                     let entry_topics_set = entry.topics().iter().collect::<HashSet<_>>();
 
-                    entry_topics_set
+                    let intersection_len = entry_topics_set
                         .intersection(&required_topics_set)
                         .collect::<Vec<_>>()
-                        .len()
-                        == required_topics_set.len()
+                        .len();
+
+                    if or {
+                        intersection_len > 0
+                    } else {
+                        intersection_len == required_topics_set.len()
+                    }
                 })
                 .collect();
         }

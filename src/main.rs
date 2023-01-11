@@ -99,6 +99,10 @@ enum Action {
         #[arg(short, long, num_args = 1..)]
         topics: Option<Vec<String>>,
 
+        /// If set, the list will contain all of the entries that are in at least one of the topics specified with `--topics`
+        #[arg(long)]
+        or: bool,
+
         /// Only show the entries that have an author name that contains this substring
         #[arg(short, long)]
         author: Option<String>,
@@ -204,6 +208,7 @@ fn main() -> anyhow::Result<()> {
             desc,
             from,
             to,
+            or,
         } => {
             let opt_from = if let Some(inner) = from {
                 Some(inner.parse::<DateTimeUtc>()?)
@@ -226,6 +231,7 @@ fn main() -> anyhow::Result<()> {
                 desc,
                 opt_from,
                 opt_to,
+                or,
             )?;
 
             if long {
