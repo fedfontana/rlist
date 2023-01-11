@@ -53,3 +53,12 @@ pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
 }
+
+#[macro_export]
+macro_rules! read_sql_response {
+    ($stmt:expr, $($col_name:ident => $t:ty),+) => {
+        $(
+            let $col_name = $stmt.read::<$t, _>(stringify!($col_name))?;
+        )+
+    };
+}

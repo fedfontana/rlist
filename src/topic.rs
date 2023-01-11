@@ -1,10 +1,10 @@
-use std::{collections::hash_map::DefaultHasher, hash::Hasher};
+use std::{collections::hash_map::DefaultHasher, hash::Hasher, ptr::read};
 
 use anyhow::Result;
 use colored::Colorize;
 use std::hash::Hash;
 
-use crate::utils::COLORS;
+use crate::{utils::COLORS, read_sql_response};
 
 pub(crate) struct Topic {}
 
@@ -63,10 +63,11 @@ impl Topic {
         let q = "SELECT t.name AS topic, t.topic_id AS id FROM topics AS t JOIN rlist_has_topic AS rht ON rht.topic_id = t.topic_id WHERE rht.entry_id = :entry_id;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":entry_id", entry_id))?;
+
         let mut res = Vec::new();
+
         while let sqlite::State::Row = stmt.next()? {
-            let id = stmt.read::<i64, _>("id")?;
-            let topic = stmt.read::<String, _>("topic")?;
+            read_sql_response!(stmt, id => i64, topic => String);
             res.push((id, topic));
         }
 
@@ -77,9 +78,11 @@ impl Topic {
         let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":topic_id", topic_id))?;
+
         if let sqlite::State::Done = stmt.next()? {
             return Ok(None);
         }
+
         let name = stmt.read::<String, _>("name")?;
         Ok(Some(name))
     }

@@ -6,6 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::f32::consts::E;
 use std::hash::{Hash, Hasher};
 
+use crate::read_sql_response;
 use crate::topic::Topic;
 use crate::utils::{COLORS, opt_from_sql, ToSQL};
 
@@ -175,11 +176,9 @@ impl Entry {
         if let sqlite::State::Done = stmt.next()? {
             return Ok(None);
         }
-        let entry_id = stmt.read::<i64, _>("entry_id")?;
-        let name = stmt.read::<String, _>("name")?;
-        let url = stmt.read::<String, _>("url")?;
-        let author = opt_from_sql(stmt.read::<String, _>("author")?);
-        let added = stmt.read::<String, _>("added")?;
+
+        read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
+        let author = opt_from_sql(author);
 
         return Ok(Some(Entry::new(
             name,
@@ -250,13 +249,10 @@ impl Entry {
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Could not find rlist entry with name: {}", name.as_ref()));
         }
+
+        read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
+        let author = opt_from_sql(author);
         
-        let entry_id = stmt.read::<i64, _>("entry_id")?;
-        let name = stmt.read::<String, _>("name")?;
-        let url = stmt.read::<String, _>("url")?;
-        let author = opt_from_sql(stmt.read::<String, _>("author")?);
-        let added = stmt.read::<String, _>("added")?;
-            
         Ok((entry_id, Entry::new(name, url, author, Vec::new(), Some(added))))
     }
 }

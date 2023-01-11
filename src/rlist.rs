@@ -1,10 +1,11 @@
-use crate::{entry::Entry, topic::Topic, utils::dt_to_string};
+use crate::{entry::Entry, topic::Topic};
 use anyhow::Result;
 use chrono::DateTime;
 use dateparser::DateTimeUtc;
 use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
 
-use crate::utils::opt_from_sql;
+use crate::read_sql_response;
+use crate::utils::{opt_from_sql, dt_to_string};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -182,9 +183,8 @@ impl RList {
                     res[pos].add_topic(topic.clone().unwrap());
                 }
             } else {
-                let url = stmt.read::<String, _>("url")?;
-                let author = opt_from_sql(stmt.read::<String, _>("author")?);
-                let added = stmt.read::<String, _>("added")?;
+                read_sql_response!(stmt, url => String, added => String, author => String);
+                let author = opt_from_sql(author);
 
                 let topics = topic.map(|t| vec![t]).unwrap_or_default();
 
@@ -279,13 +279,8 @@ impl RList {
                 ));
             }
 
-            //? would it be feasable to create a query like: read_sqlite_response!(i64 entry_id, String name, String url, String author, String added)
-            //? that did the same thing as the rows below?
-            let entry_id = stmt.read::<i64, _>("entry_id")?;
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let author = opt_from_sql(stmt.read::<String, _>("author")?);
-            let added = stmt.read::<String, _>("added")?;
+            read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
+            let author = opt_from_sql(author);
 
             (
                 entry_id,
@@ -353,10 +348,8 @@ impl RList {
 
         let mut res = Vec::new();
         while let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let author = opt_from_sql(stmt.read::<String, _>("author")?);
-            let added = stmt.read::<String, _>("added")?;
+            read_sql_response!(stmt, name => String, url => String, added => String, author => String);
+            let author = opt_from_sql(author);
 
             //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
             let e = Entry::new(name, url, author, Vec::new(), Some(added));
@@ -368,3 +361,4 @@ impl RList {
         Ok(res)
     }
 }
+
