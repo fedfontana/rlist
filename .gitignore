@@ -1,2 +1,2 @@
 /target
-rlist.sqlite
+*.sqlite
