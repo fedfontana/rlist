@@ -1,9 +1,7 @@
-use chrono::{Utc, DateTime};
-use serde::{Serialize, Deserialize};
-use colored::{Colorize, ColoredString};
-use std::f32::consts::E;
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
+use colored::Colorize;
+use serde::{Deserialize, Serialize};
+
+use crate::topic::Topic;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entry {
@@ -14,32 +12,14 @@ pub struct Entry {
     added: String,
 }
 
-const COLORS: [(u8, u8, u8); 20] = [
-    (200, 10, 20), 
-    (125, 30, 20), 
-    (130, 130, 10), 
-    (10, 150, 120),
-    (220, 165, 0),
-    (207, 64, 207),
-    (255, 117, 43),
-    (38, 169, 173),
-    (114, 39, 219),
-    (219, 39, 78),
-    (60, 105, 230),
-    (60, 230, 130),
-    (5, 171, 74),
-    (105, 201, 14),
-    (15, 103, 135),
-    (161, 66, 51),
-    (120, 89, 6),
-    (245, 44, 44),
-    (230, 195, 20),
-    (5, 2, 207),
-];
-
-
 impl Entry {
-    pub fn new(name: String, url: String, author: Option<String>, topics: Vec<String>, added: Option<String>) -> Self {
+    pub fn new(
+        name: String,
+        url: String,
+        author: Option<String>,
+        topics: Vec<String>,
+        added: Option<String>,
+    ) -> Self {
         Self {
             name,
             url,
@@ -53,7 +33,7 @@ impl Entry {
         self.name.as_ref()
     }
 
-    pub fn url(&self) -> &str { 
+    pub fn url(&self) -> &str {
         self.url.as_str()
     }
 
@@ -69,34 +49,47 @@ impl Entry {
         self.topics.push(topic)
     }
 
-    fn pretty_print_topic<T>(topic: T) -> String 
-        where T: AsRef<str> + Hash + Colorize {
-        let mut hasher =  DefaultHasher::new();
-        topic.hash(&mut hasher);
-        let c = COLORS[hasher.finish() as usize % COLORS.len()];
-        topic.on_truecolor(c.0, c.1, c.2).to_string()
+    pub fn set_topics(&mut self, topics: Vec<String>) {
+        self.topics = topics;
     }
 
     pub fn pretty_print_long(&self) {
         let topics_row = if self.topics.len() > 0 {
-            format!("Topics: {}\n", self.topics.iter().map(|t| Entry::pretty_print_topic(t.as_ref())).collect::<Vec<_>>().join(", "))
+            format!(
+                "Topics: {}\n",
+                self.topics
+                    .iter()
+                    .map(|t| Topic::pretty_print(t.as_ref()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         } else {
             "".to_string()
         };
 
-        println!("{name}: {url}{maybe_author}\n{topics_row}Added on {added}",
+        println!(
+            "{name}: {url}{maybe_author}\n{topics_row}Added on {added}",
             name = self.name.bold().truecolor(255, 165, 0),
             url = self.url.bright_blue().underline(),
-            maybe_author = self.author.as_ref().map(|v| format!(" by {}", v.green())).unwrap_or("".into()),
+            maybe_author = self
+                .author
+                .as_ref()
+                .map(|v| format!(" by {}", v.green()))
+                .unwrap_or("".into()),
             added = self.added,
         );
     }
 
     pub fn pretty_print(&self) {
-        println!("{name}: {url}{maybe_author}",
+        println!(
+            "{name}: {url}{maybe_author}",
             name = self.name.bold().truecolor(255, 165, 0),
             url = self.url.bright_blue().underline(),
-            maybe_author = self.author.as_ref().map(|v| format!(" by {}", v.green())).unwrap_or("".into()),
+            maybe_author = self
+                .author
+                .as_ref()
+                .map(|v| format!(" by {}", v.green()))
+                .unwrap_or("".into()),
         );
     }
 }
