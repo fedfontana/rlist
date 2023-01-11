@@ -284,16 +284,18 @@ impl Entry {
     pub(crate) fn get_by_name_without_topics(conn: &sqlite::Connection, name: impl AsRef<str>) -> Result<(i64, Self)> {
         let q = "SELECT * FROM rlist WHERE name = :name;";
         let mut stmt = conn.prepare(q)?;
+        stmt.bind((":name", name.as_ref()))?;
+
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Could not find rlist entry with name: {}", name.as_ref()));
         }
-
+        
         let entry_id = stmt.read::<i64, _>("entry_id")?;
         let name = stmt.read::<String, _>("name")?;
         let url = stmt.read::<String, _>("url")?;
         let author = opt_from_sql(stmt.read::<String, _>("author")?);
         let added = stmt.read::<String, _>("added")?;
-        
+            
         Ok((entry_id, Entry::new(name, url, author, Vec::new(), Some(added))))
     }
 }
