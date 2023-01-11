@@ -1,8 +1,11 @@
 use crate::entry::Entry;
 use anyhow::Result;
-use chrono::DateTime;
 use dateparser::DateTimeUtc;
-use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
+use std::{collections::HashSet, path::Path, str::FromStr};
+
+use crate::db::{entry::DBEntry, topic::DBTopic};
+use crate::read_sql_response;
+use crate::utils::{dt_to_string, opt_from_sql};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -21,7 +24,7 @@ impl FromStr for OrderBy {
             "url" => Ok(Self::Url),
             "author" => Ok(Self::Author),
             "added" => Ok(Self::Added),
-            other => Err(anyhow::anyhow!("Option not recognized")),
+            other => Err(anyhow::anyhow!("Option \"{other}\" not recognized")),
         }
     }
 }
@@ -43,15 +46,17 @@ pub struct RList {
 }
 
 impl RList {
+
+    /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
     pub fn init() -> Result<Self> {
         let home_dir_path =
             dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
-        let home_dir = Path::new(home_dir_path.as_os_str());
-        let rlist_dir = home_dir.join(Path::new("rlist"));
+        let rlist_dir = Path::new(home_dir_path.as_os_str()).join("rlist");
         std::fs::create_dir_all(&rlist_dir)?;
-        let p = rlist_dir.join(Path::new("rlist.sqlite"));
+        let p = rlist_dir.join("rlist.sqlite");
 
         let conn = sqlite::open(p)?;
+
         let q = "
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS rlist (
@@ -73,74 +78,34 @@ impl RList {
             FOREIGN KEY (topic_id) REFERENCES topics (topic_id) ON UPDATE CASCADE ON DELETE CASCADE
         );";
         conn.execute(q)?;
+
         Ok(Self { conn })
     }
 
-    pub fn add(&self, entry: Entry) -> Result<bool> {
-        let query = "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING entry_id";
-        let mut statement = self.conn.prepare(query)?;
-        statement.bind(
-            &[
-                (":name", entry.name()),
-                (":url", entry.url()),
-                (":author", entry.author().unwrap_or("NULL")),
-            ][..],
+    /// Adds the entry to the database. Returns Ok(()) if the entry was added
+    pub fn add(&self, entry: Entry) -> Result<()> {
+        let entry_id = DBEntry::create(
+            &self.conn,
+            entry.name.as_str(),
+            entry.url.as_str(),
+            entry.author.as_deref(),
         )?;
 
-        let topics = entry.topics();
-        if topics.len() > 0 {
-            if let sqlite::State::Row = statement.next()? {
-                let entry_id = statement.read::<i64, _>("entry_id")?;
-
-                let q = format!(
-                    "INSERT INTO topics (name) VALUES {} 
-                        ON CONFLICT (name) DO UPDATE SET name=name 
-                        RETURNING topic_id;",
-                    (0..topics.len())
-                        .map(|e| "(?)")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                let mut stmt = self.conn.prepare(q)?;
-
-                stmt.bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
-
-                while let sqlite::State::Row = stmt.next()? {
-                    let topic_id = stmt.read::<i64, _>("topic_id")?;
-                    let q = "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES (:entry_id, :topic_id);";
-                    let mut stmt = self.conn.prepare(q)?;
-                    stmt.bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
-                    stmt.next()?;
-                }
-            }
-        } else {
-            statement.next()?;
+        if entry.topics.len() > 0 {
+            let topic_ids = DBTopic::create_many(&self.conn, &entry.topics)?;
+            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
-        Ok(true)
+
+        Ok(())
     }
 
+    /// Removes the entry by name. Returns Ok(the old entry if it existed)
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
-        let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind::<(&str, &str)>((":entry_name", name.as_ref()))?;
-
-        if let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
-
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
-
-            return Ok(Entry::new(name, url, author, Vec::new(), None));
+        let r = DBEntry::remove_by_name(&self.conn, name.clone())?;
+        if r.is_none() {
+            return Err(anyhow::anyhow!("No entry found with name: {name}"));
         }
-
-        Err(anyhow::anyhow!(
-            "There was an error deleting the selected entry."
-        ))
+        Ok(r.unwrap())
     }
 
     pub fn query(
@@ -153,10 +118,8 @@ impl RList {
         desc: bool,
         from: Option<DateTimeUtc>,
         to: Option<DateTimeUtc>,
+        or: bool,
     ) -> Result<Vec<Entry>> {
-        //TODO maybe sort NON NULLS first? like if used with `-s author`, put the ones with authors first (sorted by author),
-        //TODO and then the ones with author == NULL
-
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
         if query.is_some() {
@@ -172,17 +135,15 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
+        // SQLite format:  YYYY-MM-DD HH:MM:SS
         let opt_from = from.map(|dt| dt_to_string(dt));
         if let Some(from) = opt_from.as_deref() {
             clauses.push("ls.added >= :from");
-            // SQLite format:  YYYY-MM-DD HH:MM:SS
             bindings.push((":from", from.as_ref()));
         }
-
-        let opt_to= to.map(|dt| dt_to_string(dt));
-        if let Some(to )= opt_to.as_deref() {
+        let opt_to = to.map(|dt| dt_to_string(dt));
+        if let Some(to) = opt_to.as_deref() {
             clauses.push("ls.added <= :to");
-            // SQLite format:  YYYY-MM-DD HH:MM:SS
             bindings.push((":to", to.as_ref()));
         }
 
@@ -203,9 +164,9 @@ impl RList {
                 t.name AS topic 
             FROM rlist AS ls 
             LEFT OUTER JOIN rlist_has_topic AS rht 
-            ON ls.entry_id = rht.entry_id 
+                ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
-            ON t.topic_id = rht.topic_id
+                ON t.topic_id = rht.topic_id
             {}
             {sort}",
             if clauses.len() > 0 {
@@ -224,32 +185,17 @@ impl RList {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
 
-            if let Some(pos) = res.iter().position(|e| e.name() == name) {
+            if let Some(pos) = res.iter().position(|e| e.name == name) {
                 if topic.is_some() {
-                    res[pos].add_topic(topic.clone().unwrap());
+                    res[pos].topics.push(topic.unwrap());
                 }
             } else {
-                let url = stmt.read::<String, _>("url")?;
-                let maybe_author = stmt.read::<String, _>("author")?;
-                let added = stmt.read::<String, _>("added")?;
+                read_sql_response!(stmt, url => String, added => String, author => String);
+                let author = opt_from_sql(author);
 
-                let topics = if topic.is_none() {
-                    vec![]
-                } else {
-                    vec![topic.unwrap()]
-                };
+                let topics = topic.map(|t| vec![t]).unwrap_or_default();
 
-                let entry = Entry::new(
-                    name.clone(),
-                    url,
-                    if maybe_author == "NULL" {
-                        None
-                    } else {
-                        Some(maybe_author)
-                    },
-                    topics,
-                    Some(added),
-                );
+                let entry = Entry::new(name.clone(), url, author, topics, Some(added));
                 res.push(entry);
             }
         }
@@ -260,13 +206,18 @@ impl RList {
             res = res
                 .into_iter()
                 .filter(|entry| {
-                    let entry_topics_set = entry.topics().iter().collect::<HashSet<_>>();
+                    let entry_topics_set = entry.topics.iter().collect::<HashSet<_>>();
 
-                    entry_topics_set
+                    let intersection_len = entry_topics_set
                         .intersection(&required_topics_set)
                         .collect::<Vec<_>>()
-                        .len()
-                        == required_topics_set.len()
+                        .len();
+
+                    if or {
+                        intersection_len > 0
+                    } else {
+                        intersection_len == required_topics_set.len()
+                    }
                 })
                 .collect();
         }
@@ -313,128 +264,60 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
-        let q = if updates.len() > 0 {
-            format!(
-                "
-                UPDATE rlist
+        let (entry_id, mut entry) = if updates.len() == 0 {
+            DBEntry::get_by_name_without_topics(&self.conn, old_name)?
+        } else {
+            let q = format!(
+                "UPDATE rlist
                 SET {u}
                 WHERE name = :old_name
-                RETURNING *;
-                ",
+                RETURNING *;",
                 u = updates.join(", ")
+            );
+            let mut stmt = self.conn.prepare(q)?;
+            stmt.bind_iter(bindings)?;
+            if let sqlite::State::Done = stmt.next()? {
+                return Err(anyhow::anyhow!(
+                    "Could not get entry with name: {}",
+                    old_name.as_str()
+                ));
+            }
+
+            read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
+            let author = opt_from_sql(author);
+
+            (
+                entry_id,
+                Entry::new(name, url, author, Vec::new(), Some(added)),
             )
-        } else {
-            "SELECT * FROM rlist WHERE name = :old_name".to_string()
         };
 
-        let mut stmt = self.conn.prepare(q)?;
-
-        stmt.bind_iter(bindings)?;
-
-        if let sqlite::State::Row = stmt.next()? {
-            let entry_id = stmt.read::<i64, _>("entry_id")?;
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
-            let added = stmt.read::<String, _>("added")?;
-
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
-
-            if clear_topics || topics.is_some() {
-                let q = "DELETE FROM rlist_has_topic WHERE entry_id = :entry_id;";
-                let mut rm_topic_stmt = self.conn.prepare(q)?;
-                rm_topic_stmt.bind((":entry_id", entry_id))?;
-                rm_topic_stmt.next()?;
-            }
-
-            // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
-            // --topics removes all topics associated with the entry and creates the new ones, whilst --add-topics just appends some topics
-
-            let topics_to_add = if topics.is_some() { topics } else { add_topics };
-
-            if topics_to_add.is_some() {
-                let topics = topics_to_add.unwrap();
-                let q = format!(
-                    "INSERT INTO topics (name) VALUES {} 
-                    ON CONFLICT (name) DO UPDATE SET name=name 
-                    RETURNING topic_id;",
-                    (0..topics.len())
-                        .map(|e| "(?)")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                let mut topics_stmt = self.conn.prepare(q)?;
-
-                topics_stmt
-                    .bind_iter(topics.iter().enumerate().map(|(i, t)| (i + 1, t.as_str())))?;
-
-                while let sqlite::State::Row = topics_stmt.next()? {
-                    let topic_id = topics_stmt.read::<i64, _>("topic_id")?;
-                    let q = "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES (:entry_id, :topic_id)
-                    ON CONFLICT (entry_id, topic_id) DO UPDATE SET entry_id=entry_id;";
-                    let mut link_topics_stmt = self.conn.prepare(q)?;
-                    link_topics_stmt
-                        .bind(&[(":entry_id", entry_id), (":topic_id", topic_id)][..])?;
-                    link_topics_stmt.next()?;
-                }
-            }
-
-            if remove_topics.is_some() {
-                let topics = remove_topics.unwrap();
-                let q = format!(
-                    "DELETE FROM rlist_has_topic 
-                    WHERE entry_id = ?
-                        AND topic_id IN (
-                            SELECT topic_id FROM topics WHERE name IN ({})
-                    ) RETURNING *;",
-                    (0..topics.len())
-                        .map(|_e| "?")
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-
-                let mut topics_stmt = self.conn.prepare(q)?;
-
-                let bindings = [(1, sqlite::Value::from(entry_id))].into_iter().chain(
-                    topics
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| (i + 2, sqlite::Value::from(t.as_str()))),
-                );
-
-                topics_stmt.bind_iter(bindings)?;
-                topics_stmt.next()?;
-            }
-
-            let q = "
-            SELECT 
-                t.name AS topic 
-            FROM rlist_has_topic AS rht
-                JOIN topics AS t ON t.topic_id = rht.topic_id
-            WHERE rht.entry_id = :entry_id;";
-
-            let mut get_topics_stmt = self.conn.prepare(q)?;
-            get_topics_stmt.bind((":entry_id", entry_id))?;
-
-            let mut total_topics = Vec::new();
-            while let sqlite::State::Row = get_topics_stmt.next()? {
-                let topic = get_topics_stmt.read::<String, _>("topic")?;
-                total_topics.push(topic);
-            }
-            let e = Entry::new(name, url, author, total_topics, Some(added));
-
-            return Ok(e);
+        if clear_topics || topics.is_some() {
+            DBEntry::unlink_all_topics(&self.conn, entry_id)?;
         }
-        Err(anyhow::anyhow!(
-            "Something bad happended while updating the entry."
-        ))
+
+        // --topics has precedence over --add-topics, and if the first is set, then the second won't do anything
+        // --topics removes all topics associated with the entry and creates the new ones, whilst --add-topics just appends some topics
+        let topics_to_add = if topics.is_some() { topics } else { add_topics };
+
+        if topics_to_add.is_some() {
+            let t = topics_to_add.unwrap();
+            let topic_ids = DBTopic::create_many(&self.conn, &t)?;
+            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+        }
+
+        if remove_topics.is_some() {
+            DBEntry::unlink_topics_by_name(&self.conn, entry_id, remove_topics.unwrap())?;
+        }
+
+        entry.topics = DBTopic::get_related_to(&self.conn, entry_id)?
+            .into_iter()
+            .map(|(_i, e)| e)
+            .collect();
+
+        Ok(entry)
     }
 
-    //let old_entries = rlist.remove_by_topics(topics.unwrap())?;
     pub fn remove_by_topics(&self, topics: Vec<String>) -> Result<Vec<Entry>> {
         let mut res = Vec::new();
         for topic in topics {
@@ -448,48 +331,35 @@ impl RList {
         let q = "SELECT topic_id FROM topics WHERE name = :topic;";
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic", topic.as_str()))?;
+
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Topic not in topics"));
         }
+
         let topic_id = stmt.read::<i64, _>("topic_id")?;
 
-        let q = "
-        DELETE FROM rlist 
+        let q = "DELETE FROM rlist 
         WHERE entry_id IN (
             SELECT entry_id 
             FROM rlist_has_topic 
             WHERE topic_id = :topic_id
         ) RETURNING *;";
+
         let mut stmt = self.conn.prepare(q)?;
         stmt.bind((":topic_id", topic_id))?;
 
         let mut res = Vec::new();
         while let sqlite::State::Row = stmt.next()? {
-            let name = stmt.read::<String, _>("name")?;
-            let url = stmt.read::<String, _>("url")?;
-            let maybe_author = stmt.read::<String, _>("author")?;
+            read_sql_response!(stmt, name => String, url => String, added => String, author => String);
+            let author = opt_from_sql(author);
 
-            let author = if maybe_author == "NULL" {
-                None
-            } else {
-                Some(maybe_author)
-            };
             //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
-            let e = Entry::new(name, url, author, Vec::new(), Some(String::new()));
+            let e = Entry::new(name, url, author, Vec::new(), Some(added));
             res.push(e);
         }
 
-        let q = "DELETE FROM topics WHERE topic_id = :topic_id";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic_id", topic_id))?;
-        stmt.next()?;
+        _ = DBTopic::delete_by_id(&self.conn, topic_id)?;
 
         Ok(res)
     }
-}
-
-fn dt_to_string(dt: DateTimeUtc) -> String {
-    chrono::DateTime::<chrono::Local>::from(dt.0)
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
 }
