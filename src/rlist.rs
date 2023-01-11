@@ -362,4 +362,17 @@ impl RList {
 
         Ok(res)
     }
+
+    pub(crate) fn dump_all(&self) -> Result<Vec<Entry>> {
+        DBEntry::get_all_complete(&self.conn)
+    }
+
+    pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
+        for e in entries {
+            let entry_id = DBEntry::create(&self.conn, e.name.as_str(), e.url.as_str(), e.author.as_deref())?;
+            let topic_ids = DBTopic::create_many(&self.conn, &e.topics)?;
+            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+        }
+        Ok(())
+    }
 }

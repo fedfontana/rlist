@@ -163,4 +163,43 @@ impl DBEntry {
         
         Ok((entry_id, Entry::new(name, url, author, Vec::new(), Some(added))))
     }
+
+    pub(crate) fn get_all_complete(conn: &sqlite::Connection) -> Result<Vec<Entry>> {
+        let q = "
+        SELECT 
+            ls.name AS name, 
+            ls.url AS url, 
+            ls.author AS author, 
+            ls.added AS added, 
+            t.name AS topic 
+        FROM rlist AS ls 
+        LEFT OUTER JOIN rlist_has_topic AS rht 
+            ON ls.entry_id = rht.entry_id 
+        LEFT OUTER JOIN topics AS t 
+            ON t.topic_id = rht.topic_id;";
+
+        let mut stmt = conn.prepare(q)?;
+
+        let mut res: Vec<Entry> = Vec::new();
+
+        while let sqlite::State::Row = stmt.next()? {
+            let name = stmt.read::<String, _>("name")?;
+            let topic = stmt.read::<String, _>("topic").ok();
+
+            if let Some(pos) = res.iter().position(|e| e.name == name) {
+                if topic.is_some() {
+                    res[pos].topics.push(topic.unwrap());
+                }
+            } else {
+                read_sql_response!(stmt, url => String, added => String, author => String);
+                let author = opt_from_sql(author);
+
+                let topics = topic.map(|t| vec![t]).unwrap_or_default();
+
+                let entry = Entry::new(name.clone(), url, author, topics, Some(added));
+                res.push(entry);
+            }
+        }
+        Ok(res)
+    }
 }
