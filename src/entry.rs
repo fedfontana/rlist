@@ -1,14 +1,7 @@
-use anyhow::Result;
-use chrono::{DateTime, Utc};
-use colored::{ColoredString, Colorize};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::f32::consts::E;
-use std::hash::{Hash, Hasher};
 
-use crate::read_sql_response;
 use crate::topic::Topic;
-use crate::utils::{COLORS, opt_from_sql, ToSQL};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entry {

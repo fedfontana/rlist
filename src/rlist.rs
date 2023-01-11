@@ -1,8 +1,7 @@
-use crate::{entry::Entry, topic::Topic};
+use crate::entry::Entry;
 use anyhow::Result;
-use chrono::DateTime;
 use dateparser::DateTimeUtc;
-use std::{any, collections::HashSet, fmt::Display, path::Path, str::FromStr};
+use std::{collections::HashSet, path::Path, str::FromStr};
 
 use crate::db::{entry::DBEntry, topic::DBTopic};
 use crate::read_sql_response;
@@ -25,7 +24,7 @@ impl FromStr for OrderBy {
             "url" => Ok(Self::Url),
             "author" => Ok(Self::Author),
             "added" => Ok(Self::Added),
-            other => Err(anyhow::anyhow!("Option not recognized")),
+            other => Err(anyhow::anyhow!("Option \"{other}\" not recognized")),
         }
     }
 }

@@ -1,16 +1,4 @@
-#![allow(dead_code, unused)]
-
-use std::{
-    fmt::Display,
-    fs::{self, File},
-    io::Write,
-    path::Path,
-    str::FromStr,
-};
-
-use chrono::Timelike;
 use clap::{Parser, Subcommand};
-use colored::Colorize;
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
 

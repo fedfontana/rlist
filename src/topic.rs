@@ -1,10 +1,9 @@
 use std::{collections::hash_map::DefaultHasher, hash::Hasher};
 
-use anyhow::Result;
 use colored::Colorize;
 use std::hash::Hash;
 
-use crate::{utils::COLORS, read_sql_response};
+use crate::{utils::COLORS};
 
 pub(crate) struct Topic {}
 

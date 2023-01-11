@@ -1,16 +1,9 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use colored::{ColoredString, Colorize};
-use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::f32::consts::E;
-use std::hash::{Hash, Hasher};
 
 use crate::db::topic::DBTopic;
 use crate::entry::Entry;
 use crate::read_sql_response;
-use crate::topic::Topic;
-use crate::utils::{COLORS, opt_from_sql, ToSQL};
+use crate::utils::{opt_from_sql, ToSQL};
 
 pub struct DBEntry {}
 
@@ -92,7 +85,7 @@ impl DBEntry {
             return Ok(None);
         }
 
-        read_sql_response!(stmt, entry_id => i64, name => String, url => String, added => String, author => String);
+        read_sql_response!(stmt, name => String, url => String, added => String, author => String);
         let author = opt_from_sql(author);
 
         return Ok(Some(Entry::new(
