@@ -242,7 +242,7 @@ fn main() -> anyhow::Result<()> {
             });
 
             if entries.len() > 0 {
-                println!("Returned a total of {} entries", entries.len());
+                println!("A total of {} {} matched your query", entries.len(), if entries.len() == 1 { "entry" } else { "entries" });
             }
         }
         Action::Import { path } => {
