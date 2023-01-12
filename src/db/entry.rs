@@ -68,8 +68,8 @@ impl DBEntry {
                 if matches!(err.code, Some(19)) {
                     if let Some(col) = get_conflicting_column_name(&err) {
                         return match col.split_once(".") {
-                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not insert the entry beacuase your reading list already contains an entry with the same value for {col_name}")),
-                            None => Err(anyhow::anyhow!("Could not insert the entry because your reading list already contains an entry that has the same value for name or url")), // Should be unreachable
+                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not create entry with name {name} beacuase your reading list already contains an entry with the same value for {col_name}")),
+                            None => Err(anyhow::anyhow!("Could not create entry with name {name} because your reading list already contains an entry that has the same value for name or url")), // Should be unreachable
                         };
                     }
                 }

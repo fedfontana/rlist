@@ -138,6 +138,7 @@ enum Action {
     },
 
     /// Imports a set of entries from a yml file
+    /// Note that entries with the same name or url as an entry in your reading list will not be imported (and the topics in the import file will not be appended to existing entry)
     Import { path: PathBuf },
 
     /// Exports the contennt of the whole reading list into a yml file
@@ -250,14 +251,16 @@ fn main() -> anyhow::Result<()> {
             let entries: Vec<Entry> = serde_yaml::from_str(&content)
                 .context("Could not import reading list from file")?;
             let imported_count = rlist.import(entries)?;
+
             println!(
-                "Exported {imported_count} {word}{source}",
+                "Imported {imported_count} {word}{source}",
                 word = if imported_count == 1 {
                     "entry"
                 } else {
                     "entries"
                 },
-                source = path.to_str()
+                source = path
+                    .to_str()
                     .map(|p| format!(" from {p}"))
                     .unwrap_or_default()
             );
@@ -269,13 +272,11 @@ fn main() -> anyhow::Result<()> {
                     .parent()
                     .ok_or(anyhow::anyhow!("Could not create the export file"))?,
             )?;
-            if let Ok(content) = serde_yaml::to_string(&entries) {
-                fs::write(&path, content)?;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Could not export the content of your reading list"
-                ));
-            }
+            let content = serde_yaml::to_string(&entries)
+                .context("Could not export the content of your reading list")?;
+            fs::write(&path, content)
+                .context("Could not export the content of your reading list")?;
+
             println!(
                 "Exported {count} {word}{destination}",
                 count = entries.len(),
@@ -284,7 +285,8 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     "entries"
                 },
-                destination = path.to_str()
+                destination = path
+                    .to_str()
                     .map(|p| format!(" to {p}"))
                     .unwrap_or_default()
             );

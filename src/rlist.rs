@@ -1,5 +1,6 @@
 use crate::entry::Entry;
 use anyhow::Result;
+use colored::Colorize;
 use dateparser::DateTimeUtc;
 use std::path::PathBuf;
 use std::{collections::HashSet, path::Path, str::FromStr};
@@ -378,16 +379,21 @@ impl RList {
     pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<u64> {
         let mut c = 0;
         for e in entries {
-            if let Ok((entry_id, _entry)) = DBEntry::create(
+            match DBEntry::create(
                 &self.conn,
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
             ) {
-                if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
-                    if DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids).is_ok() {
-                        c += 1;
+                Ok((entry_id, _entry)) => {
+                    if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
+                        if DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids).is_ok() {
+                            c += 1;
+                        }
                     }
+                }
+                Err(err) => {
+                    eprintln!("{}: {err}", "Warning".yellow())
                 }
             }
         }
