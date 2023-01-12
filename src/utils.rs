@@ -55,6 +55,18 @@ pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
         .to_string()
 }
 
+pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String> {
+    if let Some(19) = err.code {
+        if let Some(ref msg) = err.message {
+            if msg.starts_with("UNIQUE constraint failed: ") {
+                let col = &msg["UNIQUE constraint failed: ".len()-1..].trim();
+                return Some(col.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[macro_export]
 macro_rules! read_sql_response {
     ($stmt:expr, $($col_name:ident => $t:ty),+) => {

@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::db::topic::DBTopic;
 use crate::entry::Entry;
 use crate::read_sql_response;
-use crate::utils::{opt_from_sql, ToSQL};
+use crate::utils::{get_conflicting_column_name, opt_from_sql, ToSQL};
 
 pub struct DBEntry {}
 
@@ -58,8 +58,24 @@ impl DBEntry {
             ][..],
         )?;
 
-        if let sqlite::State::Done = stmt.next()? {
-            return Err(anyhow::anyhow!("Could not insert entry with name: {name}"));
+        match stmt.next() {
+            Ok(sqlite::State::Done) => {
+                return Err(anyhow::anyhow!(
+                    "Could not insert entry because of an unknown error."
+                ));
+            }
+            Err(err) => {
+                if matches!(err.code, Some(19)) {
+                    if let Some(col) = get_conflicting_column_name(&err) {
+                        return match col.split_once(".") {
+                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not insert the entry beacuase your reading list already contains an entry with the same value for {col_name}")),
+                            None => Err(anyhow::anyhow!("Could not insert the entry because your reading list already contains an entry that has the same value for name or url")), // Should be unreachable
+                        };
+                    }
+                }
+                return Err(err.into());
+            }
+            _ => {}
         }
 
         read_sql_response!(stmt, entry_id => i64, added => String);
