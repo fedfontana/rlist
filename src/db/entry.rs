@@ -91,22 +91,17 @@ impl DBEntry {
         ))
     }
 
-    //TODO maybe i should just return an Err("Not found") instead of Ok(None)
-    //? is it possible to write a subquery in the RETURNING clause?
-    //? if yes, then i could also return all of the topics from the delete clause?
-
+    //? is it possible to write a subquery in the RETURNING clause to return all of the topics instead of doing 2 queries?
     /// Removes the entry with name = `name`.
-    /// Returns None when no entry with that name was found, else the old entry data, with all of its topics.
+    /// Returns the old entry's data with all of its topic 
     pub(crate) fn remove_by_name(
         conn: &sqlite::Connection,
         name: impl AsRef<str>,
-    ) -> Result<Option<Entry>> {
+    ) -> Result<Entry> {
         let entry_id = Self::get_id_from_name(conn, name.as_ref())?;
-        // Early return if no result is found
-        if entry_id.is_none() {
-            return Ok(None);
-        }
-        let entry_id = entry_id.unwrap();
+        let entry_id = entry_id.ok_or(
+            anyhow::anyhow!("Could not find any entry with name {} in your reading list", name.as_ref())
+        )?;
 
         let topics = DBTopic::get_related_to(conn, entry_id)?
             .into_iter()
@@ -116,15 +111,13 @@ impl DBEntry {
         let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
         let mut stmt = conn.prepare(q)?;
         stmt.bind((":entry_name", name.as_ref()))?;
-
-        if let sqlite::State::Done = stmt.next()? {
-            return Ok(None);
-        }
+        // No need to check it is == State::Done since i already check that it exists with Self::get_id_from_name()
+        stmt.next()?;
 
         read_sql_response!(stmt, name => String, url => String, added => String, author => String);
         let author = opt_from_sql(author);
 
-        return Ok(Some(Entry::new(name, url, author, topics, Some(added))));
+        Ok(Entry::new(name, url, author, topics, Some(added)))
     }
 
     /// Gets an entry_id given a name.
@@ -200,7 +193,7 @@ impl DBEntry {
 
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!(
-                "Could not find rlist entry with name: {}",
+                "Could not find any entry in your reading list with name {}",
                 name.as_ref()
             ));
         }

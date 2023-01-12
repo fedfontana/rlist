@@ -116,11 +116,7 @@ impl RList {
 
     /// Removes the entry by name. Returns Ok(the old entry if it existed)
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
-        let r = DBEntry::remove_by_name(&self.conn, name.clone())?;
-        if r.is_none() {
-            return Err(anyhow::anyhow!("No entry found with name: {name}"));
-        }
-        Ok(r.unwrap())
+        DBEntry::remove_by_name(&self.conn, name.clone())
     }
 
     /// Returns the list of entries that match the query.
