@@ -1,5 +1,6 @@
 use crate::entry::Entry;
 use anyhow::Result;
+use colored::Colorize;
 use dateparser::DateTimeUtc;
 use std::path::PathBuf;
 use std::{collections::HashSet, path::Path, str::FromStr};
@@ -48,6 +49,7 @@ pub struct RList {
 
 impl RList {
     /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
+    /// Forwards the errors raised by the called functions, such as std::fs and sqlite ones.
     pub fn init(db_file_path: Option<PathBuf>) -> Result<Self> {
         let p = if db_file_path.is_none() {
             let home_dir_path =
@@ -94,31 +96,37 @@ impl RList {
     }
 
     /// Adds the entry to the database. Returns Ok(()) if the entry was added
-    pub fn add(&self, entry: Entry) -> Result<()> {
-        let entry_id = DBEntry::create(
-            &self.conn,
-            entry.name.as_str(),
-            entry.url.as_str(),
-            entry.author.as_deref(),
-        )?;
+    pub fn add(
+        &self,
+        name: String,
+        url: String,
+        author: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<Entry> {
+        let (entry_id, mut entry) =
+            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref())?;
 
-        if entry.topics.len() > 0 {
-            let topic_ids = DBTopic::create_many(&self.conn, &entry.topics)?;
+        if topics.len() > 0 {
+            let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
             DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
         }
+        entry.topics = topics;
 
-        Ok(())
+        Ok(entry)
     }
 
     /// Removes the entry by name. Returns Ok(the old entry if it existed)
     pub fn remove_by_name(&self, name: String) -> Result<Entry> {
-        let r = DBEntry::remove_by_name(&self.conn, name.clone())?;
-        if r.is_none() {
-            return Err(anyhow::anyhow!("No entry found with name: {name}"));
-        }
-        Ok(r.unwrap())
+        DBEntry::remove_by_name(&self.conn, name.clone())
     }
 
+    /// Returns the list of entries that match the query.
+    /// If query is set, then it will be contained in each of the entries' names
+    /// If author is set, then only entries with an author that contains this value will be returned
+    /// Same with url
+    /// If topics is set, then the returned enties will be contained in __all__ of those topics. If `or` is set to true,
+    /// then the function will return the entries that are in __at least one__ of the topics.
+    /// `from` and `to` control the range of the dates in which the returned entries were created.
     pub fn query(
         &self,
         query: Option<String>,
@@ -196,11 +204,13 @@ impl RList {
             let name = stmt.read::<String, _>("name")?;
             let topic = stmt.read::<String, _>("topic").ok();
 
+            // If the entry is already in the vector, then just add the current topic to the entry's topics
             if let Some(pos) = res.iter().position(|e| e.name == name) {
                 if topic.is_some() {
                     res[pos].topics.push(topic.unwrap());
                 }
             } else {
+                // else create a new entry
                 read_sql_response!(stmt, url => String, added => String, author => String);
                 let author = opt_from_sql(author);
 
@@ -211,6 +221,7 @@ impl RList {
             }
         }
 
+        // Filter out the topics based on topics
         if let Some(topics) = topics {
             let required_topics_set = topics.iter().collect::<HashSet<_>>();
 
@@ -247,6 +258,7 @@ impl RList {
         clear_topics: bool,
         remove_topics: Option<Vec<String>>,
     ) -> Result<Entry> {
+        // If no edit is set, then return an error
         if new_name.is_none()
             && author.is_none()
             && url.is_none()
@@ -255,9 +267,7 @@ impl RList {
             && !clear_topics
             && remove_topics.is_none()
         {
-            return Err(anyhow::anyhow!(
-                "You gotta edit something, boi. Nice edit, such wow, much rlist"
-            ));
+            return Err(anyhow::anyhow!("No edit options were given"));
         }
 
         let mut updates = Vec::new();
@@ -275,9 +285,11 @@ impl RList {
             bindings.push((":url", url.as_deref().unwrap()));
         }
 
+        // If there are no updates on the entry to be made, then just get the entry and its id.
         let (entry_id, mut entry) = if updates.len() == 0 {
             DBEntry::get_by_name_without_topics(&self.conn, old_name)?
         } else {
+            // else perform the updates and construct a new Entry with the resulting data
             let q = format!(
                 "UPDATE rlist
                 SET {u}
@@ -289,7 +301,7 @@ impl RList {
             stmt.bind_iter(bindings)?;
             if let sqlite::State::Done = stmt.next()? {
                 return Err(anyhow::anyhow!(
-                    "Could not get entry with name: {}",
+                    "Could not find any entry in your reading list with name {}",
                     old_name.as_str()
                 ));
             }
@@ -338,57 +350,53 @@ impl RList {
         Ok(res)
     }
 
+    /// Removes all of the entries that are in `topic` and returns them
     pub fn remove_by_topic(&self, topic: String) -> Result<Vec<Entry>> {
-        let q = "SELECT topic_id FROM topics WHERE name = :topic;";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic", topic.as_str()))?;
+        let topic_id = DBTopic::get_id_from_name(&self.conn, topic.as_str())?;
 
-        if let sqlite::State::Done = stmt.next()? {
-            return Err(anyhow::anyhow!("Topic not in topics"));
-        }
+        let entries = self.query(
+            None,
+            Some(vec![topic]),
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            false,
+        )?;
 
-        let topic_id = stmt.read::<i64, _>("topic_id")?;
+        DBEntry::remove_related_to(&self.conn, topic_id)?;
 
-        let q = "DELETE FROM rlist 
-        WHERE entry_id IN (
-            SELECT entry_id 
-            FROM rlist_has_topic 
-            WHERE topic_id = :topic_id
-        ) RETURNING *;";
-
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic_id", topic_id))?;
-
-        let mut res = Vec::new();
-        while let sqlite::State::Row = stmt.next()? {
-            read_sql_response!(stmt, name => String, url => String, added => String, author => String);
-            let author = opt_from_sql(author);
-
-            //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
-            let e = Entry::new(name, url, author, Vec::new(), Some(added));
-            res.push(e);
-        }
-
-        _ = DBTopic::delete_by_id(&self.conn, topic_id)?;
-
-        Ok(res)
+        Ok(entries)
     }
 
     pub(crate) fn dump_all(&self) -> Result<Vec<Entry>> {
         DBEntry::get_all_complete(&self.conn)
     }
 
-    pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
+    /// Creates all of the entries provided.
+    pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<u64> {
+        let mut c = 0;
         for e in entries {
-            let entry_id = DBEntry::create(
+            match DBEntry::create(
                 &self.conn,
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
-            )?;
-            let topic_ids = DBTopic::create_many(&self.conn, &e.topics)?;
-            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+            ) {
+                Ok((entry_id, _entry)) => {
+                    if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
+                        if DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids).is_ok() {
+                            c += 1;
+                        }
+                    }
+                }
+                Err(err) => {
+                    eprintln!("{}: {err}", "Warning".yellow())
+                }
+            }
         }
-        Ok(())
+        Ok(c)
     }
 }

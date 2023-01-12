@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
@@ -19,22 +20,11 @@ mod utils;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    /// The subcommand to run when neither `--export` or `--import` are specified
     #[command(subcommand)]
-    action: Option<Action>,
+    action: Action,
 
     #[arg(long)]
     db_file: Option<PathBuf>,
-
-    /// Imports a set of entries from a yml file
-    /// NOTE that this option is only meant to be used when starting from an empty reading list as it will error out at the first conflict
-    #[arg(long)]
-    import: Option<PathBuf>,
-
-    /// Exports the contennt of the whole reading list into a yml file
-    /// Takes precedence over `--import`, meaning that only export will run if both import and export are specified
-    #[arg(long)]
-    export: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -146,45 +136,29 @@ enum Action {
         #[arg(long)]
         to: Option<String>,
     },
+
+    /// Imports a set of entries from a yml file
+    /// Note that entries with the same name or url as an entry in your reading list will not be imported (and the topics in the import file will not be appended to existing entry)
+    Import { path: PathBuf },
+
+    /// Exports the contennt of the whole reading list into a yml file
+    Export { path: PathBuf },
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let rlist = RList::init(args.db_file)?;
 
-    if let Some(export_path) = args.export {
-        let entries = rlist.dump_all()?;
-        fs::create_dir_all(
-            Path::new(&export_path)
-                .parent()
-                .ok_or(anyhow::anyhow!("Could not create the export file"))?,
-        )?;
-        let content = serde_yaml::to_string(&entries)?;
-        fs::write(export_path, content)?;
-        return Ok(());
-    } else if let Some(import_path) = args.import {
-        let content = fs::read_to_string(import_path)?;
-        let entries: Vec<Entry> = serde_yaml::from_str(&content)?;
-        rlist.import(entries)?;
-        return Ok(());
-    }
-
-    if args.action.is_none() {
-        return Err(anyhow::anyhow!("Must provide a command"));
-    }
-
-    match args.action.unwrap() {
+    match args.action {
         Action::Add {
             name,
             author,
             url,
             topics,
-            ..
         } => {
-            let e = Entry::new(name, url, author, topics, None);
-
-            rlist.add(e)?;
-            println!("Entry added to rlist");
+            let entry = rlist.add(name, url, author, topics)?;
+            println!("Entry added to rlist:");
+            entry.pretty_print(true);
         }
         Action::Remove { name, topics } => {
             if name.is_some() {
@@ -198,17 +172,17 @@ fn main() -> anyhow::Result<()> {
                     println!("No entries were removed");
                     return Ok(());
                 }
-                println!("Remove these entries:");
+                println!("Removed these entries:");
                 old_entries.iter().for_each(|e| {
-                    e.pretty_print(false);
+                    e.pretty_print(true);
                     println!();
                 });
                 if old_entries.len() > 1 {
                     println!("Removed a total of {} entries", old_entries.len());
                 }
             } else {
-                // If neither name or topics is passed to the cli, return err
-                return Err(anyhow::anyhow!("You gotta select something to delete boi"));
+                // If neither name or topics is passed to the cli
+                return Err(anyhow::anyhow!("No criteria for deletion was selected"));
             }
         }
         Action::Edit {
@@ -231,7 +205,7 @@ fn main() -> anyhow::Result<()> {
                 clear_topics,
                 remove_topics,
             )?;
-            println!("The new entry is:");
+            println!("Here's the edited entry:");
             new_entry.pretty_print(true);
             println!();
         }
@@ -252,7 +226,6 @@ fn main() -> anyhow::Result<()> {
             } else {
                 None
             };
-
             let opt_to = if let Some(inner) = to {
                 Some(inner.parse::<DateTimeUtc>()?)
             } else {
@@ -267,6 +240,56 @@ fn main() -> anyhow::Result<()> {
                 e.pretty_print(long);
                 println!();
             });
+
+            if entries.len() > 0 {
+                println!("A total of {} {} matched your query", entries.len(), if entries.len() == 1 { "entry" } else { "entries" });
+            }
+        }
+        Action::Import { path } => {
+            let content =
+                fs::read_to_string(&path).context("Could not import reading list from file")?;
+            let entries: Vec<Entry> = serde_yaml::from_str(&content)
+                .context("Could not import reading list from file")?;
+            let imported_count = rlist.import(entries)?;
+
+            println!(
+                "Imported {imported_count} {word}{source}",
+                word = if imported_count == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                },
+                source = path
+                    .to_str()
+                    .map(|p| format!(" from {p}"))
+                    .unwrap_or_default()
+            );
+        }
+        Action::Export { path } => {
+            let entries = rlist.dump_all()?;
+            fs::create_dir_all(
+                Path::new(&path)
+                    .parent()
+                    .ok_or(anyhow::anyhow!("Could not create the export file"))?,
+            )?;
+            let content = serde_yaml::to_string(&entries)
+                .context("Could not export the content of your reading list")?;
+            fs::write(&path, content)
+                .context("Could not export the content of your reading list")?;
+
+            println!(
+                "Exported {count} {word}{destination}",
+                count = entries.len(),
+                word = if entries.len() == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                },
+                destination = path
+                    .to_str()
+                    .map(|p| format!(" to {p}"))
+                    .unwrap_or_default()
+            );
         }
     }
     Ok(())

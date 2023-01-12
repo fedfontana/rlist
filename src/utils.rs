@@ -48,10 +48,23 @@ where
     }
 }
 
+/// Returns the given date `dt` to the format used by the db
 pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
     chrono::DateTime::<chrono::Local>::from(dt.0)
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
+}
+
+pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String> {
+    if let Some(19) = err.code {
+        if let Some(ref msg) = err.message {
+            if msg.starts_with("UNIQUE constraint failed: ") {
+                let col = &msg["UNIQUE constraint failed: ".len()-1..].trim();
+                return Some(col.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[macro_export]
