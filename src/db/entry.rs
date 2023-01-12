@@ -237,4 +237,19 @@ impl DBEntry {
         }
         Ok(res)
     }
+
+    pub(crate) fn remove_related_to(conn: &sqlite::Connection, topic_id: i64) -> Result<()> {
+        let q = "DELETE FROM rlist 
+        WHERE entry_id IN (
+            SELECT entry_id 
+            FROM rlist_has_topic 
+            WHERE topic_id = :topic_id
+        );";
+
+        let mut stmt = conn.prepare(q)?;
+        stmt.bind((":topic_id", topic_id))?;
+        stmt.next()?;
+
+        Ok(())
+    }
 }

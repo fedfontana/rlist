@@ -80,17 +80,17 @@ impl DBTopic {
         Ok(res)
     }
 
-    /// Deletes a topic by its id. Returns None if no topic was found, else returns its name
-    pub(crate) fn delete_by_id(conn: &sqlite::Connection, topic_id: i64) -> Result<Option<String>> {
-        let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";
-        let mut stmt = conn.prepare(q)?;
-        stmt.bind((":topic_id", topic_id))?;
+    // Deletes a topic by its id. Returns None if no topic was found, else returns its name
+    // pub(crate) fn delete_by_id(conn: &sqlite::Connection, topic_id: i64) -> Result<Option<String>> {
+    //     let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";
+    //     let mut stmt = conn.prepare(q)?;
+    //     stmt.bind((":topic_id", topic_id))?;
 
-        if let sqlite::State::Done = stmt.next()? {
-            return Ok(None);
-        }
+    //     if let sqlite::State::Done = stmt.next()? {
+    //         return Ok(None);
+    //     }
 
-        let name = stmt.read::<String, _>("name")?;
-        Ok(Some(name))
-    }
+    //     let name = stmt.read::<String, _>("name")?;
+    //     Ok(Some(name))
+    // }
 }

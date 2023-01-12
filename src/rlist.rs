@@ -364,32 +364,23 @@ impl RList {
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!("Topic not in topics"));
         }
-
         let topic_id = stmt.read::<i64, _>("topic_id")?;
 
-        let q = "DELETE FROM rlist 
-        WHERE entry_id IN (
-            SELECT entry_id 
-            FROM rlist_has_topic 
-            WHERE topic_id = :topic_id
-        ) RETURNING *;";
+        let entries = self.query(
+            None,
+            Some(vec![topic]),
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            false,
+        )?;
 
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic_id", topic_id))?;
+        DBEntry::remove_related_to(&self.conn, topic_id)?;
 
-        let mut res = Vec::new();
-        while let sqlite::State::Row = stmt.next()? {
-            read_sql_response!(stmt, name => String, url => String, added => String, author => String);
-            let author = opt_from_sql(author);
-
-            //? Returning stuff with some defaults cause this function is currently only used with pretty_print (short version)
-            let e = Entry::new(name, url, author, Vec::new(), Some(added));
-            res.push(e);
-        }
-
-        _ = DBTopic::delete_by_id(&self.conn, topic_id)?;
-
-        Ok(res)
+        Ok(entries)
     }
 
     pub(crate) fn dump_all(&self) -> Result<Vec<Entry>> {

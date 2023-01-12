@@ -177,7 +177,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 println!("Remove these entries:");
                 old_entries.iter().for_each(|e| {
-                    e.pretty_print(false);
+                    e.pretty_print(true);
                     println!();
                 });
                 if old_entries.len() > 1 {
