@@ -80,6 +80,19 @@ impl DBTopic {
         Ok(res)
     }
 
+    pub(crate) fn get_id_from_name(conn: &sqlite::Connection, topic: impl AsRef<str>) -> Result<i64> {
+        let q = "SELECT topic_id FROM topics WHERE name = :topic;";
+        let mut stmt = conn.prepare(q)?;
+        stmt.bind((":topic", topic.as_ref()))?;
+
+        if let sqlite::State::Done = stmt.next()? {
+            return Err(anyhow::anyhow!("Could not find topic {} in your reading list", topic.as_ref()));
+        }
+        let topic_id = stmt.read::<i64, _>("topic_id")?;
+        
+        Ok(topic_id)
+    }
+
     // Deletes a topic by its id. Returns None if no topic was found, else returns its name
     // pub(crate) fn delete_by_id(conn: &sqlite::Connection, topic_id: i64) -> Result<Option<String>> {
     //     let q = "DELETE FROM topics WHERE topic_id = :topic_id RETURNING *";

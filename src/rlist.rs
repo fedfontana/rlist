@@ -266,9 +266,7 @@ impl RList {
             && !clear_topics
             && remove_topics.is_none()
         {
-            return Err(anyhow::anyhow!(
-                "You gotta edit something, boi. Nice edit, such wow, much rlist"
-            ));
+            return Err(anyhow::anyhow!("No edit options were given"));
         }
 
         let mut updates = Vec::new();
@@ -302,7 +300,7 @@ impl RList {
             stmt.bind_iter(bindings)?;
             if let sqlite::State::Done = stmt.next()? {
                 return Err(anyhow::anyhow!(
-                    "Could not get entry with name: {}",
+                    "Could not find any entry in your reading list with name {}",
                     old_name.as_str()
                 ));
             }
@@ -353,14 +351,7 @@ impl RList {
 
     /// Removes all of the entries that are in `topic` and returns them
     pub fn remove_by_topic(&self, topic: String) -> Result<Vec<Entry>> {
-        let q = "SELECT topic_id FROM topics WHERE name = :topic;";
-        let mut stmt = self.conn.prepare(q)?;
-        stmt.bind((":topic", topic.as_str()))?;
-
-        if let sqlite::State::Done = stmt.next()? {
-            return Err(anyhow::anyhow!("Topic not in topics"));
-        }
-        let topic_id = stmt.read::<i64, _>("topic_id")?;
+        let topic_id = DBTopic::get_id_from_name(&self.conn, topic.as_str())?;
 
         let entries = self.query(
             None,
@@ -384,19 +375,22 @@ impl RList {
     }
 
     /// Creates all of the entries provided.
-    /// NOTE: currently stops at the first error (even on conflicts), so this can basically only be used when importing
-    /// an old backup of the reading list, starting from a clean db.
-    pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<()> {
+    pub(crate) fn import(&self, entries: Vec<Entry>) -> Result<u64> {
+        let mut c = 0;
         for e in entries {
-            let (entry_id, _entry) = DBEntry::create(
+            if let Ok((entry_id, _entry)) = DBEntry::create(
                 &self.conn,
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
-            )?;
-            let topic_ids = DBTopic::create_many(&self.conn, &e.topics)?;
-            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+            ) {
+                if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
+                    if DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids).is_ok() {
+                        c += 1;
+                    }
+                }
+            }
         }
-        Ok(())
+        Ok(c)
     }
 }

@@ -138,7 +138,6 @@ enum Action {
     },
 
     /// Imports a set of entries from a yml file
-    /// NOTE that this option is only meant to be used when starting from an empty reading list as it will error out at the first conflict
     Import { path: PathBuf },
 
     /// Exports the contennt of the whole reading list into a yml file
@@ -246,9 +245,22 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Action::Import { path } => {
-            let content = fs::read_to_string(path).context("Could not import reading list from file")?;
-            let entries: Vec<Entry> = serde_yaml::from_str(&content).context("Could not import reading list from file")?;
-            rlist.import(entries)?;
+            let content =
+                fs::read_to_string(&path).context("Could not import reading list from file")?;
+            let entries: Vec<Entry> = serde_yaml::from_str(&content)
+                .context("Could not import reading list from file")?;
+            let imported_count = rlist.import(entries)?;
+            println!(
+                "Exported {imported_count} {word}{source}",
+                word = if imported_count == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                },
+                source = path.to_str()
+                    .map(|p| format!(" from {p}"))
+                    .unwrap_or_default()
+            );
         }
         Action::Export { path } => {
             let entries = rlist.dump_all()?;
@@ -258,10 +270,24 @@ fn main() -> anyhow::Result<()> {
                     .ok_or(anyhow::anyhow!("Could not create the export file"))?,
             )?;
             if let Ok(content) = serde_yaml::to_string(&entries) {
-                fs::write(path, content)?;
+                fs::write(&path, content)?;
             } else {
-                return Err(anyhow::anyhow!("Could not export the content of your reading list"));
+                return Err(anyhow::anyhow!(
+                    "Could not export the content of your reading list"
+                ));
             }
+            println!(
+                "Exported {count} {word}{destination}",
+                count = entries.len(),
+                word = if entries.len() == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                },
+                destination = path.to_str()
+                    .map(|p| format!(" to {p}"))
+                    .unwrap_or_default()
+            );
         }
     }
     Ok(())
