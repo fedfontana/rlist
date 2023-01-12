@@ -15,6 +15,7 @@ mod entry;
 mod rlist;
 mod topic;
 mod utils;
+mod config;
 
 /// Reading list manager for the command line
 #[derive(Parser, Debug)]
@@ -25,6 +26,9 @@ struct Args {
 
     #[arg(long)]
     db_file: Option<PathBuf>,
+
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
