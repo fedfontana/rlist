@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
@@ -138,14 +139,10 @@ enum Action {
 
     /// Imports a set of entries from a yml file
     /// NOTE that this option is only meant to be used when starting from an empty reading list as it will error out at the first conflict
-    Import {
-        path: PathBuf,
-    },
+    Import { path: PathBuf },
 
     /// Exports the contennt of the whole reading list into a yml file
-    Export {
-        path: PathBuf,
-    }
+    Export { path: PathBuf },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -175,7 +172,7 @@ fn main() -> anyhow::Result<()> {
                     println!("No entries were removed");
                     return Ok(());
                 }
-                println!("Remove these entries:");
+                println!("Removed these entries:");
                 old_entries.iter().for_each(|e| {
                     e.pretty_print(true);
                     println!();
@@ -184,8 +181,8 @@ fn main() -> anyhow::Result<()> {
                     println!("Removed a total of {} entries", old_entries.len());
                 }
             } else {
-                // If neither name or topics is passed to the cli, return err
-                return Err(anyhow::anyhow!("You gotta select something to delete boi"));
+                // If neither name or topics is passed to the cli
+                return Err(anyhow::anyhow!("No criteria for deletion was selected"));
             }
         }
         Action::Edit {
@@ -208,7 +205,7 @@ fn main() -> anyhow::Result<()> {
                 clear_topics,
                 remove_topics,
             )?;
-            println!("The new entry is:");
+            println!("Here's the edited entry:");
             new_entry.pretty_print(true);
             println!();
         }
@@ -229,7 +226,6 @@ fn main() -> anyhow::Result<()> {
             } else {
                 None
             };
-
             let opt_to = if let Some(inner) = to {
                 Some(inner.parse::<DateTimeUtc>()?)
             } else {
@@ -244,12 +240,16 @@ fn main() -> anyhow::Result<()> {
                 e.pretty_print(long);
                 println!();
             });
-        },
+
+            if entries.len() > 0 {
+                println!("Returned a total of {} entries", entries.len());
+            }
+        }
         Action::Import { path } => {
-            let content = fs::read_to_string(path)?;
-            let entries: Vec<Entry> = serde_yaml::from_str(&content)?;
+            let content = fs::read_to_string(path).context("Could not import reading list from file")?;
+            let entries: Vec<Entry> = serde_yaml::from_str(&content).context("Could not import reading list from file")?;
             rlist.import(entries)?;
-        },
+        }
         Action::Export { path } => {
             let entries = rlist.dump_all()?;
             fs::create_dir_all(
@@ -257,9 +257,12 @@ fn main() -> anyhow::Result<()> {
                     .parent()
                     .ok_or(anyhow::anyhow!("Could not create the export file"))?,
             )?;
-            let content = serde_yaml::to_string(&entries)?;
-            fs::write(path, content)?;
-        },
+            if let Ok(content) = serde_yaml::to_string(&entries) {
+                fs::write(path, content)?;
+            } else {
+                return Err(anyhow::anyhow!("Could not export the content of your reading list"));
+            }
+        }
     }
     Ok(())
 }
