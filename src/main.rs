@@ -25,9 +25,12 @@ struct Args {
     #[command(subcommand)]
     action: Action,
 
+    /// The path to the database used by rlist to save your reading list. Default path is: `~/rlist/rlist.sqlite` on unix based systems
+    /// Note that this argument will take precedence over the option set in the config file, if any.
     #[arg(long)]
     db_file: Option<PathBuf>,
 
+    /// The path to the (optional) config file. Default config path (automatically picked up by the program) is `~/.config/rlist.yml` on unix based systems
     #[arg(long)]
     config: Option<PathBuf>,
 }
