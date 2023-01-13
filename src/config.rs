@@ -67,8 +67,8 @@ impl Config {
             if format_string_is_valid(f.as_str()) {
                 f
             } else {
-                eprintln!("{}: the datetime format provided in your custom config is not a valid format string, reverting to the default datetime representation.", "Warning".yellow());
-                eprintln!("{}: Please refer to https://docs.rs/chrono/latest/chrono/format/strftime/index.html for the available formatting options\n", "Info".cyan());
+                eprintln!("{}: the datetime format provided in your custom config is not a valid format string, reverting to the default datetime representation.", "Warning".bold().yellow());
+                eprintln!("{}: Please refer to https://docs.rs/chrono/latest/chrono/format/strftime/index.html for the available formatting options\n", "Info".bold().cyan());
                 DEFAULT_DATETIME_FORMAT.to_string()
             }
         }).unwrap_or(DEFAULT_DATETIME_FORMAT.to_string());

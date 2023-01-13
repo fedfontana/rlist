@@ -92,7 +92,7 @@ impl RList {
         topics: Vec<String>,
     ) -> Result<Entry> {
         let (entry_id, mut entry) =
-            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref())?;
+            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref(), None)?;
 
         if topics.len() > 0 {
             let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
@@ -290,7 +290,7 @@ impl RList {
             if let sqlite::State::Done = stmt.next()? {
                 return Err(anyhow::anyhow!(
                     "Could not find any entry in your reading list with name {}",
-                    old_name.as_str()
+                    old_name.as_str().bold().truecolor(255, 165, 0)
                 ));
             }
 
@@ -372,6 +372,7 @@ impl RList {
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
+                Some(e.added).as_deref()
             ) {
                 Ok((entry_id, _entry)) => {
                     if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
@@ -381,7 +382,7 @@ impl RList {
                     }
                 }
                 Err(err) => {
-                    eprintln!("{}: {err}", "Warning".yellow())
+                    eprintln!("{}: {err}", "Warning".bold().yellow())
                 }
             }
         }
