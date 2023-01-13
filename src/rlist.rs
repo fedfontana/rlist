@@ -1,8 +1,8 @@
+use crate::config::Config;
 use crate::entry::Entry;
 use anyhow::Result;
 use colored::Colorize;
 use dateparser::DateTimeUtc;
-use std::path::PathBuf;
 use std::{collections::HashSet, path::Path, str::FromStr};
 
 use crate::db::{entry::DBEntry, topic::DBTopic};
@@ -45,30 +45,18 @@ impl ToString for OrderBy {
 
 pub struct RList {
     conn: sqlite::Connection,
+    pub config: Config,
 }
 
 impl RList {
     /// Creates the db file, initializes the tables and establishes a connection to the sqlite db
     /// Forwards the errors raised by the called functions, such as std::fs and sqlite ones.
-    pub fn init(db_file_path: Option<PathBuf>) -> Result<Self> {
-        let p = if db_file_path.is_none() {
-            let home_dir_path =
-                dirs::home_dir().ok_or(anyhow::anyhow!("Could not find home folder"))?;
-            let rlist_dir = Path::new(home_dir_path.as_os_str()).join("rlist");
-            std::fs::create_dir_all(&rlist_dir)?;
+    pub fn init(config: Config) -> Result<Self> {
+        std::fs::create_dir_all(&Path::new(&config.db_file).parent().ok_or(anyhow::anyhow!(
+            "Could not create directories needed to create the reading list"
+        ))?)?;
 
-            rlist_dir.join("rlist.sqlite")
-        } else {
-            let pb = db_file_path.unwrap();
-            let rlist_dir = Path::new(pb.as_os_str());
-            std::fs::create_dir_all(&rlist_dir.parent().ok_or(anyhow::anyhow!(
-                "Could not create directories needed to create the reading list"
-            ))?)?;
-
-            rlist_dir.to_path_buf()
-        };
-
-        let conn = sqlite::open(p)?;
+        let conn = sqlite::open(&config.db_file)?;
 
         let q = "
         PRAGMA foreign_keys = ON;
@@ -92,7 +80,7 @@ impl RList {
         );";
         conn.execute(q)?;
 
-        Ok(Self { conn })
+        Ok(Self { conn, config })
     }
 
     /// Adds the entry to the database. Returns Ok(()) if the entry was added
@@ -104,7 +92,7 @@ impl RList {
         topics: Vec<String>,
     ) -> Result<Entry> {
         let (entry_id, mut entry) =
-            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref())?;
+            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref(), None)?;
 
         if topics.len() > 0 {
             let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
@@ -302,7 +290,7 @@ impl RList {
             if let sqlite::State::Done = stmt.next()? {
                 return Err(anyhow::anyhow!(
                     "Could not find any entry in your reading list with name {}",
-                    old_name.as_str()
+                    old_name.as_str().bold().truecolor(255, 165, 0)
                 ));
             }
 
@@ -384,6 +372,7 @@ impl RList {
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
+                Some(e.added).as_deref()
             ) {
                 Ok((entry_id, _entry)) => {
                     if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {
@@ -393,7 +382,7 @@ impl RList {
                     }
                 }
                 Err(err) => {
-                    eprintln!("{}: {err}", "Warning".yellow())
+                    eprintln!("{}: {err}", "Warning".bold().yellow())
                 }
             }
         }

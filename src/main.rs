@@ -5,11 +5,13 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use config::Config;
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
 
+mod config;
 mod db;
 mod entry;
 mod rlist;
@@ -23,8 +25,14 @@ struct Args {
     #[command(subcommand)]
     action: Action,
 
+    /// The path to the database used by rlist to save your reading list. Default path is: `~/rlist/rlist.sqlite` on unix based systems
+    /// Note that this argument will take precedence over the option set in the config file, if any.
     #[arg(long)]
     db_file: Option<PathBuf>,
+
+    /// The path to the (optional) config file. Default config path (automatically picked up by the program) is `~/.config/rlist.yml` on unix based systems
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -147,7 +155,12 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let rlist = RList::init(args.db_file)?;
+
+    let mut config = Config::new_from_arg(args.config)?;
+    if let Some(p) = args.db_file {
+        config.db_file = p;
+    }
+    let rlist = RList::init(config)?;
 
     match args.action {
         Action::Add {
@@ -158,13 +171,13 @@ fn main() -> anyhow::Result<()> {
         } => {
             let entry = rlist.add(name, url, author, topics)?;
             println!("Entry added to rlist:");
-            entry.pretty_print(true);
+            entry.pretty_print(true, rlist.config.datetime_format)?;
         }
         Action::Remove { name, topics } => {
             if name.is_some() {
                 let old_entry = rlist.remove_by_name(name.unwrap())?;
                 print!("Removed entry: \n");
-                old_entry.pretty_print(true);
+                old_entry.pretty_print(true, rlist.config.datetime_format)?;
                 println!();
             } else if topics.is_some() {
                 let old_entries = rlist.remove_by_topics(topics.unwrap())?;
@@ -172,11 +185,15 @@ fn main() -> anyhow::Result<()> {
                     println!("No entries were removed");
                     return Ok(());
                 }
+                
                 println!("Removed these entries:");
                 old_entries.iter().for_each(|e| {
-                    e.pretty_print(true);
+                    if let Err(e) = e.pretty_print(true, &rlist.config.datetime_format) {
+                        eprintln!("{}", e);
+                    }
                     println!();
                 });
+
                 if old_entries.len() > 1 {
                     println!("Removed a total of {} entries", old_entries.len());
                 }
@@ -206,7 +223,7 @@ fn main() -> anyhow::Result<()> {
                 remove_topics,
             )?;
             println!("Here's the edited entry:");
-            new_entry.pretty_print(true);
+            new_entry.pretty_print(true, rlist.config.datetime_format)?;
             println!();
         }
         Action::List {
@@ -237,12 +254,22 @@ fn main() -> anyhow::Result<()> {
             )?;
 
             entries.iter().for_each(|e| {
-                e.pretty_print(long);
+                if let Err(e) = e.pretty_print(long, &rlist.config.datetime_format) {
+                    eprintln!("{}", e);
+                }
                 println!();
             });
 
             if entries.len() > 0 {
-                println!("A total of {} {} matched your query", entries.len(), if entries.len() == 1 { "entry" } else { "entries" });
+                println!(
+                    "A total of {} {} matched your query",
+                    entries.len(),
+                    if entries.len() == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    }
+                );
             }
         }
         Action::Import { path } => {

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use colored::Colorize;
 
 use crate::db::topic::DBTopic;
 use crate::entry::Entry;
@@ -42,21 +43,39 @@ impl DBEntry {
     }
 
     /// Creates a new entry in the db. Does not handle topics. Returns a tuple containing the entry_id and the entry
+    /// Expects added to be formatted like SQLITE_DATETIME_FORMAT
     pub(crate) fn create(
         conn: &sqlite::Connection,
         name: &str,
         url: &str,
         author: Option<&str>,
+        added: Option<&str>,
     ) -> Result<(i64, Entry)> {
-        let q = "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING *";
+        let q = if added.is_some() {
+            "INSERT INTO rlist (name, url, author, added) VALUES (:name, :url, :author, :added) RETURNING *"
+        } else {
+            "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING *"
+        };
         let mut stmt = conn.prepare(q)?;
-        stmt.bind(
-            &[
-                (":name", name),
-                (":url", url),
-                (":author", author.to_sql().as_ref()),
-            ][..],
-        )?;
+
+        if added.is_some() {
+            stmt.bind(
+                &[
+                    (":name", name),
+                    (":url", url),
+                    (":author", author.to_sql().as_ref()),
+                    (":added", added.as_deref().unwrap()), // expected to be in the right format
+                ][..],
+            )?;
+        } else {
+            stmt.bind(
+                &[
+                    (":name", name),
+                    (":url", url),
+                    (":author", author.to_sql().as_ref()),
+                ][..],
+            )?;
+        }
 
         match stmt.next() {
             Ok(sqlite::State::Done) => {
@@ -68,8 +87,8 @@ impl DBEntry {
                 if matches!(err.code, Some(19)) {
                     if let Some(col) = get_conflicting_column_name(&err) {
                         return match col.split_once(".") {
-                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not create entry with name {name} beacuase your reading list already contains an entry with the same value for {col_name}")),
-                            None => Err(anyhow::anyhow!("Could not create entry with name {name} because your reading list already contains an entry that has the same value for name or url")), // Should be unreachable
+                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not create entry with name {} beacuase your reading list already contains an entry with the same value for {}", name.bold().truecolor(255, 165, 0), col_name.bold().red())),
+                            None => Err(anyhow::anyhow!("Could not create entry with name {} because your reading list already contains an entry that has the same value for name or url", name.bold().truecolor(255, 165, 0))), // Should be unreachable
                         };
                     }
                 }
@@ -93,15 +112,16 @@ impl DBEntry {
 
     //? is it possible to write a subquery in the RETURNING clause to return all of the topics instead of doing 2 queries?
     /// Removes the entry with name = `name`.
-    /// Returns the old entry's data with all of its topic 
+    /// Returns the old entry's data with all of its topic
     pub(crate) fn remove_by_name(
         conn: &sqlite::Connection,
         name: impl AsRef<str>,
     ) -> Result<Entry> {
         let entry_id = Self::get_id_from_name(conn, name.as_ref())?;
-        let entry_id = entry_id.ok_or(
-            anyhow::anyhow!("Could not find any entry with name {} in your reading list", name.as_ref())
-        )?;
+        let entry_id = entry_id.ok_or(anyhow::anyhow!(
+            "Could not find any entry with name {} in your reading list",
+            name.as_ref().bold().truecolor(255, 165, 0)
+        ))?;
 
         let topics = DBTopic::get_related_to(conn, entry_id)?
             .into_iter()
@@ -194,7 +214,7 @@ impl DBEntry {
         if let sqlite::State::Done = stmt.next()? {
             return Err(anyhow::anyhow!(
                 "Could not find any entry in your reading list with name {}",
-                name.as_ref()
+                name.as_ref().bold().truecolor(255, 165, 0)
             ));
         }
 

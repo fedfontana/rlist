@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use dateparser::DateTimeUtc;
 
 pub(crate) const COLORS: [(u8, u8, u8); 20] = [
@@ -48,11 +50,17 @@ where
     }
 }
 
+const SQLITE_DATETIME_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
+
 /// Returns the given date `dt` to the format used by the db
 pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
     chrono::DateTime::<chrono::Local>::from(dt.0)
-        .format("%Y-%m-%d %H:%M:%S")
+        .format(SQLITE_DATETIME_FORMAT)
         .to_string()
+}
+
+pub(crate) fn sql_string_to_dt(s: impl AsRef<str>) -> Result<chrono::NaiveDateTime> {
+    Ok(chrono::NaiveDateTime::parse_from_str(s.as_ref(), SQLITE_DATETIME_FORMAT)?)
 }
 
 pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String> {
@@ -65,6 +73,13 @@ pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String>
         }
     }
     None
+}
+
+
+// adapted from https://github.com/chronotope/chrono/issues/342
+/// Returns whether the input is a valid strftime format string
+pub(crate) fn format_string_is_valid(s: impl AsRef<str>) -> bool {
+    !chrono::format::StrftimeItems::new(s.as_ref()).any(|item| matches!(item, chrono::format::Item::Error))
 }
 
 #[macro_export]

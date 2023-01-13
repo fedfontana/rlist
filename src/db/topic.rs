@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::read_sql_response;
+use crate::{read_sql_response, topic::Topic};
 
 pub(crate) struct DBTopic {}
 
@@ -86,7 +86,7 @@ impl DBTopic {
         stmt.bind((":topic", topic.as_ref()))?;
 
         if let sqlite::State::Done = stmt.next()? {
-            return Err(anyhow::anyhow!("Could not find topic {} in your reading list", topic.as_ref()));
+            return Err(anyhow::anyhow!("Could not find topic {} in your reading list", Topic::pretty_print(topic.as_ref())));
         }
         let topic_id = stmt.read::<i64, _>("topic_id")?;
         
