@@ -168,13 +168,13 @@ fn main() -> anyhow::Result<()> {
         } => {
             let entry = rlist.add(name, url, author, topics)?;
             println!("Entry added to rlist:");
-            entry.pretty_print(true);
+            entry.pretty_print(true, rlist.config.datetime_format)?;
         }
         Action::Remove { name, topics } => {
             if name.is_some() {
                 let old_entry = rlist.remove_by_name(name.unwrap())?;
                 print!("Removed entry: \n");
-                old_entry.pretty_print(true);
+                old_entry.pretty_print(true, rlist.config.datetime_format)?;
                 println!();
             } else if topics.is_some() {
                 let old_entries = rlist.remove_by_topics(topics.unwrap())?;
@@ -185,7 +185,9 @@ fn main() -> anyhow::Result<()> {
                 
                 println!("Removed these entries:");
                 old_entries.iter().for_each(|e| {
-                    e.pretty_print(true);
+                    if let Err(e) = e.pretty_print(true, &rlist.config.datetime_format) {
+                        eprintln!("{}", e);
+                    }
                     println!();
                 });
 
@@ -218,7 +220,7 @@ fn main() -> anyhow::Result<()> {
                 remove_topics,
             )?;
             println!("Here's the edited entry:");
-            new_entry.pretty_print(true);
+            new_entry.pretty_print(true, rlist.config.datetime_format)?;
             println!();
         }
         Action::List {
@@ -249,7 +251,9 @@ fn main() -> anyhow::Result<()> {
             )?;
 
             entries.iter().for_each(|e| {
-                e.pretty_print(long);
+                if let Err(e) = e.pretty_print(long, &rlist.config.datetime_format) {
+                    eprintln!("{}", e);
+                }
                 println!();
             });
 

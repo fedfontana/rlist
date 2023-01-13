@@ -3,4 +3,4 @@
 db_file: /home/<your-user>/rlist/rlist.sqlite
 
 # Reference for possible formats: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-datetime_format: ""
+datetime_format: "%Y-%m-%d %H:%M:%S"
