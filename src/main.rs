@@ -5,17 +5,18 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use config::Config;
 use dateparser::DateTimeUtc;
 use rlist::OrderBy;
 
 use crate::{entry::Entry, rlist::RList};
 
+mod config;
 mod db;
 mod entry;
 mod rlist;
 mod topic;
 mod utils;
-mod config;
 
 /// Reading list manager for the command line
 #[derive(Parser, Debug)]
@@ -151,7 +152,12 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let rlist = RList::init(args.db_file)?;
+
+    let mut config = Config::new_from_arg(args.config)?;
+    if let Some(p) = args.db_file {
+        config.db_file = p;
+    }
+    let rlist = RList::init(config)?;
 
     match args.action {
         Action::Add {
@@ -176,11 +182,13 @@ fn main() -> anyhow::Result<()> {
                     println!("No entries were removed");
                     return Ok(());
                 }
+                
                 println!("Removed these entries:");
                 old_entries.iter().for_each(|e| {
                     e.pretty_print(true);
                     println!();
                 });
+
                 if old_entries.len() > 1 {
                     println!("Removed a total of {} entries", old_entries.len());
                 }
@@ -246,7 +254,15 @@ fn main() -> anyhow::Result<()> {
             });
 
             if entries.len() > 0 {
-                println!("A total of {} {} matched your query", entries.len(), if entries.len() == 1 { "entry" } else { "entries" });
+                println!(
+                    "A total of {} {} matched your query",
+                    entries.len(),
+                    if entries.len() == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    }
+                );
             }
         }
         Action::Import { path } => {
