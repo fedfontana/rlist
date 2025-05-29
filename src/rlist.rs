@@ -1,13 +1,10 @@
-use crate::config::Config;
+use crate::db::Database;
 use crate::entry::Entry;
+use crate::{config::Config, topic::Topic};
 use anyhow::Result;
 use colored::Colorize;
 use dateparser::DateTimeUtc;
 use std::{collections::HashSet, path::Path, str::FromStr};
-
-use crate::db::{entry::DBEntry, topic::DBTopic};
-use crate::read_sql_response;
-use crate::utils::{dt_to_string, opt_from_sql};
 
 #[derive(Debug, Clone)]
 pub enum OrderBy {
@@ -44,7 +41,7 @@ impl ToString for OrderBy {
 }
 
 pub struct RList {
-    conn: sqlite::Connection,
+    pub db: Database,
     pub config: Config,
 }
 
@@ -56,55 +53,44 @@ impl RList {
             "Could not create directories needed to create the reading list"
         ))?)?;
 
-        let conn = sqlite::open(&config.db_file)?;
+        let conn = rusqlite::Connection::open(&config.db_file)?;
 
-        let q = "
-        PRAGMA foreign_keys = ON;
-        CREATE TABLE IF NOT EXISTS rlist (
-            entry_id INTEGER PRIMARY KEY,
-            name TEXT NON NULL UNIQUE,
-            url TEXT NOT NULL UNIQUE,
-            author TEXT,
-            added DATETIME NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-        CREATE TABLE IF NOT EXISTS topics (
-            topic_id INTEGER PRIMARY KEY,
-            name TEXT NON NULL UNIQUE
-        );
-        CREATE TABLE IF NOT EXISTS rlist_has_topic (
-            entry_id INTEGER,
-            topic_id INTEGER,
-            PRIMARY KEY (entry_id, topic_id),
-            FOREIGN KEY (entry_id) REFERENCES rlist (entry_id) ON UPDATE CASCADE ON DELETE CASCADE,
-            FOREIGN KEY (topic_id) REFERENCES topics (topic_id) ON UPDATE CASCADE ON DELETE CASCADE
-        );";
-        conn.execute(q)?;
+        let mut db = Database::new(conn);
+        db.register_model::<Entry>();
+        db.register_model::<Topic>();
 
-        Ok(Self { conn, config })
+        db.create_schemas()?;
+
+        Ok(Self { db, config })
     }
 
     /// Adds the entry to the database. Returns Ok(()) if the entry was added
-    pub fn add(
-        &self,
-        name: String,
-        url: String,
-        author: Option<String>,
-        topics: Vec<String>,
-    ) -> Result<Entry> {
-        let (entry_id, mut entry) =
-            DBEntry::create(&self.conn, name.as_str(), url.as_str(), author.as_deref(), None)?;
-
-        if topics.len() > 0 {
-            let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
-            DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
-        }
-        entry.topics = topics;
-
-        Ok(entry)
-    }
+    // pub fn add(
+    //     &self,
+    //     name: String,
+    //     url: String,
+    //     author: Option<String>,
+    //     topics: Vec<String>,
+    // ) -> Result<Entry> {
+    //     let (entry_id, mut entry) = DBEntry::create(
+    //         &self.conn,
+    //         name.as_str(),
+    //         url.as_str(),
+    //         author.as_deref(),
+    //         None,
+    //     )?;
+    //
+    //     if topics.len() > 0 {
+    //         let topic_ids = DBTopic::create_many(&self.conn, &topics)?;
+    //         DBEntry::associate_with_topics(&self.conn, entry_id, topic_ids)?;
+    //     }
+    //     entry.topics = topics;
+    //
+    //     Ok(entry)
+    // }
 
     /// Removes the entry by name. Returns Ok(the old entry if it existed)
-    pub fn remove_by_name(&self, name: String) -> Result<Entry> {
+    pub fn remove_by_name(&self, name: String) -> rusqlite::Result<Entry> {
         DBEntry::remove_by_name(&self.conn, name.clone())
     }
 
@@ -129,17 +115,17 @@ impl RList {
     ) -> Result<Vec<Entry>> {
         let mut bindings = Vec::new();
         let mut clauses = Vec::new();
-        if query.is_some() {
+        if let Some(q) = query {
             clauses.push("ls.name LIKE '%' || :q || '%'");
-            bindings.push((":q", query.as_deref().unwrap()));
+            bindings.push((":q", q));
         };
-        if author.is_some() {
+        if let Some(a) = author {
             clauses.push("ls.author LIKE '%' || :author || '%'");
-            bindings.push((":author", author.as_deref().unwrap()));
+            bindings.push((":author", a));
         }
-        if url.is_some() {
+        if let Some(u) = url {
             clauses.push("ls.url LIKE '%' || :url || '%'");
-            bindings.push((":url", url.as_deref().unwrap()));
+            bindings.push((":url", u));
         }
 
         // SQLite format:  YYYY-MM-DD HH:MM:SS
@@ -162,8 +148,7 @@ impl RList {
         };
 
         let q = format!(
-            "
-            SELECT 
+            "SELECT
                 ls.name AS name, 
                 ls.url AS url, 
                 ls.author AS author, 
@@ -174,16 +159,16 @@ impl RList {
                 ON ls.entry_id = rht.entry_id 
             LEFT OUTER JOIN topics AS t 
                 ON t.topic_id = rht.topic_id
-            {}
+            {where}
             {sort}",
-            if clauses.len() > 0 {
+            where = if clauses.len() > 0 {
                 format!("WHERE {}", clauses.join(" AND "))
             } else {
                 "".to_string()
             }
         );
 
-        let mut stmt = self.conn.prepare(q)?;
+        let mut stmt = self.conn.prepare(&q)?;
         stmt.bind_iter(bindings)?;
 
         let mut res: Vec<Entry> = Vec::new();
@@ -372,7 +357,7 @@ impl RList {
                 e.name.as_str(),
                 e.url.as_str(),
                 e.author.as_deref(),
-                Some(e.added).as_deref()
+                Some(e.added).as_deref(),
             ) {
                 Ok((entry_id, _entry)) => {
                     if let Ok(topic_ids) = DBTopic::create_many(&self.conn, &e.topics) {

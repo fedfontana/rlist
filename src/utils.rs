@@ -25,20 +25,6 @@ pub(crate) const COLORS: [(u8, u8, u8); 20] = [
     (5, 2, 207),
 ];
 
-pub trait ToSQL {
-    fn to_sql(self) -> String;
-}
-
-impl<'a> ToSQL for Option<&'a str> {
-    fn to_sql(self) -> String {
-        match self {
-            Some(v) => v.to_string(),
-            None => "NULL".to_string(),
-        }
-    }
-}
-
-
 pub(crate) fn opt_from_sql<T, R>(repr: R) -> Option<T>
 where
     T: From<String>,
@@ -60,14 +46,17 @@ pub(crate) fn dt_to_string(dt: DateTimeUtc) -> String {
 }
 
 pub(crate) fn sql_string_to_dt(s: impl AsRef<str>) -> Result<chrono::NaiveDateTime> {
-    Ok(chrono::NaiveDateTime::parse_from_str(s.as_ref(), SQLITE_DATETIME_FORMAT)?)
+    Ok(chrono::NaiveDateTime::parse_from_str(
+        s.as_ref(),
+        SQLITE_DATETIME_FORMAT,
+    )?)
 }
 
 pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String> {
     if let Some(19) = err.code {
         if let Some(ref msg) = err.message {
             if msg.starts_with("UNIQUE constraint failed: ") {
-                let col = &msg["UNIQUE constraint failed: ".len()-1..].trim();
+                let col = &msg["UNIQUE constraint failed: ".len() - 1..].trim();
                 return Some(col.to_string());
             }
         }
@@ -75,11 +64,11 @@ pub(crate) fn get_conflicting_column_name(err: &sqlite::Error) -> Option<String>
     None
 }
 
-
 // adapted from https://github.com/chronotope/chrono/issues/342
 /// Returns whether the input is a valid strftime format string
 pub(crate) fn format_string_is_valid(s: impl AsRef<str>) -> bool {
-    !chrono::format::StrftimeItems::new(s.as_ref()).any(|item| matches!(item, chrono::format::Item::Error))
+    !chrono::format::StrftimeItems::new(s.as_ref())
+        .any(|item| matches!(item, chrono::format::Item::Error))
 }
 
 #[macro_export]
@@ -90,3 +79,4 @@ macro_rules! read_sql_response {
         )+
     };
 }
+

@@ -1,172 +1,151 @@
 use anyhow::Result;
 use colored::Colorize;
+use rusqlite::OptionalExtension;
 
-use crate::db::topic::DBTopic;
 use crate::entry::Entry;
 use crate::read_sql_response;
-use crate::utils::{get_conflicting_column_name, opt_from_sql, ToSQL};
+use crate::utils::opt_from_sql;
 
-pub struct DBEntry {}
+use super::Table;
 
-impl DBEntry {
-    /// Associates the entry identified by `entry_id` to all of the topics identified by `topic_ids`
-    pub(crate) fn associate_with_topics(
-        conn: &sqlite::Connection,
-        entry_id: i64,
-        topic_ids: Vec<i64>,
-    ) -> Result<()> {
-        let q = format!(
-            "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES {} 
-            ON CONFLICT (entry_id, topic_id) DO UPDATE SET entry_id=entry_id;",
-            topic_ids
-                .iter()
-                .map(|_t| "(?, ?)")
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-
-        let mut stmt = conn.prepare(q)?;
-        let bindings = (0..2 * topic_ids.len())
-            .map(|idx| {
-                if idx % 2 == 0 {
-                    (idx + 1, entry_id)
-                } else {
-                    (idx + 1, topic_ids[(idx - 1) / 2])
-                }
-            })
-            .collect::<Vec<_>>();
-
-        stmt.bind(bindings.as_slice())?;
-        stmt.next()?;
-
-        Ok(())
+impl Table for Entry {
+    fn schema() -> &'static str {
+        "CREATE TABLE IF NOT EXISTS entry (
+            id TEXT PRIMARY KEY,
+            name TEXT NON NULL UNIQUE,
+            url TEXT NOT NULL UNIQUE,
+            author TEXT,
+            added DATETIME NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );"
     }
+
+    fn persist_changes(&self, conn: &mut rusqlite::Connection) -> rusqlite::Result<()> {
+        todo!()
+    }
+
+    fn delete(&self, conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+        todo!()
+    }
+}
+
+impl Entry {
+    /// Associates the entry identified by `entry_id` to all of the topics identified by `topic_ids`
+    // pub(crate) fn associate_with_topics(
+    //     conn: &rusqlite::Connection,
+    //     entry_id: i64,
+    //     topic_ids: Vec<i64>,
+    // ) -> Result<()> {
+    //     let q = format!(
+    //         "INSERT INTO rlist_has_topic (entry_id, topic_id) VALUES {}
+    //         ON CONFLICT (entry_id, topic_id) DO UPDATE SET entry_id=entry_id;",
+    //         topic_ids
+    //             .iter()
+    //             .map(|_t| "(?, ?)")
+    //             .collect::<Vec<_>>()
+    //             .join(", ")
+    //     );
+    //
+    //     let bindings = (0..2 * topic_ids.len()).map(|idx| {
+    //         if idx % 2 == 0 {
+    //             entry_id
+    //         } else {
+    //             topic_ids[(idx - 1) / 2]
+    //         }
+    //     });
+    //
+    //     conn.execute(&q, rusqlite::params_from_iter(bindings))?;
+    //
+    //     Ok(())
+    // }
 
     /// Creates a new entry in the db. Does not handle topics. Returns a tuple containing the entry_id and the entry
     /// Expects added to be formatted like SQLITE_DATETIME_FORMAT
-    pub(crate) fn create(
-        conn: &sqlite::Connection,
-        name: &str,
-        url: &str,
-        author: Option<&str>,
-        added: Option<&str>,
-    ) -> Result<(i64, Entry)> {
-        let q = if added.is_some() {
-            "INSERT INTO rlist (name, url, author, added) VALUES (:name, :url, :author, :added) RETURNING *"
-        } else {
-            "INSERT INTO rlist (name, url, author) VALUES (:name, :url, :author) RETURNING *"
-        };
-        let mut stmt = conn.prepare(q)?;
-
-        if added.is_some() {
-            stmt.bind(
-                &[
-                    (":name", name),
-                    (":url", url),
-                    (":author", author.to_sql().as_ref()),
-                    (":added", added.as_deref().unwrap()), // expected to be in the right format
-                ][..],
-            )?;
-        } else {
-            stmt.bind(
-                &[
-                    (":name", name),
-                    (":url", url),
-                    (":author", author.to_sql().as_ref()),
-                ][..],
-            )?;
-        }
-
-        match stmt.next() {
-            Ok(sqlite::State::Done) => {
-                return Err(anyhow::anyhow!(
-                    "Could not insert entry because of an unknown error."
-                ));
-            }
-            Err(err) => {
-                if matches!(err.code, Some(19)) {
-                    if let Some(col) = get_conflicting_column_name(&err) {
-                        return match col.split_once(".") {
-                            Some((_, col_name)) => Err(anyhow::anyhow!("Could not create entry with name {} beacuase your reading list already contains an entry with the same value for {}", name.bold().truecolor(255, 165, 0), col_name.bold().red())),
-                            None => Err(anyhow::anyhow!("Could not create entry with name {} because your reading list already contains an entry that has the same value for name or url", name.bold().truecolor(255, 165, 0))), // Should be unreachable
-                        };
-                    }
-                }
-                return Err(err.into());
-            }
-            _ => {}
-        }
-
-        read_sql_response!(stmt, entry_id => i64, added => String);
-        Ok((
-            entry_id,
-            Entry::new(
-                name.to_string(),
-                url.to_string(),
-                author.map(|s| s.into()),
-                vec![],
-                Some(added),
-            ),
-        ))
-    }
+    // pub(crate) fn create(&mut self, conn: &rusqlite::Connection) -> Result<(i64, Entry)> {
+    //     let q = conn.prepare("INSERT INTO rlist (name, url, author, added) VALUES (:name, :url, :author, :added) RETURNING *")?;
+    //
+    // q.query_row(
+    //         rusqlite::named_params! {
+    //                 ":name": name,
+    //                 ":url": url,
+    //                 ":author": author,
+    //                 ":added": added.to_string(), // expected to be in the right format
+    //         },
+    //
+    //         |r| {
+    //     Ok((
+    //         r.get::<_, i64>(1)?,
+    //         Entry::new(
+    //             name.to_string(),
+    //             url.to_string(),
+    //             author.map(|s| s.into()),
+    //             vec![],
+    //             Some(r.get::<_, String>(5)?),
+    //         )
+    //     ))
+    //
+    //
+    // )
+    //
+    // Ok(q.query_row(params,
+    // })?)
+    // }
 
     //? is it possible to write a subquery in the RETURNING clause to return all of the topics instead of doing 2 queries?
     /// Removes the entry with name = `name`.
     /// Returns the old entry's data with all of its topic
     pub(crate) fn remove_by_name(
-        conn: &sqlite::Connection,
+        conn: &rusqlite::Connection,
         name: impl AsRef<str>,
-    ) -> Result<Entry> {
-        let entry_id = Self::get_id_from_name(conn, name.as_ref())?;
-        let entry_id = entry_id.ok_or(anyhow::anyhow!(
-            "Could not find any entry with name {} in your reading list",
-            name.as_ref().bold().truecolor(255, 165, 0)
-        ))?;
+    ) -> rusqlite::Result<Entry> {
+        // let entry_id = Self::get_id_from_name(conn, name.as_ref())?;
+        // let entry_id = entry_id.ok_or(anyhow::anyhow!(
+        //     "Could not find any entry with name {} in your reading list",
+        //     name.as_ref().bold().truecolor(255, 165, 0)
+        // ))?;
+        //
+        // let topics = DBTopic::get_related_to(conn, entry_id)?
+        //     .into_iter()
+        //     .map(|(_i, t)| t)
+        //     .collect::<Vec<_>>();
+        //
+        // let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
+        // let mut stmt = conn.prepare(q)?;
+        // stmt.bind((":entry_name", name.as_ref()))?;
+        // // No need to check it is == State::Done since i already check that it exists with Self::get_id_from_name()
+        // stmt.next()?;
+        //
+        // read_sql_response!(stmt, name => String, url => String, added => String, author => String);
+        // let author = opt_from_sql(author);
+        //
+        // Ok(Entry::new(name, url, author, topics, Some(added)))
 
-        let topics = DBTopic::get_related_to(conn, entry_id)?
-            .into_iter()
-            .map(|(_i, t)| t)
-            .collect::<Vec<_>>();
-
-        let q = "DELETE FROM rlist WHERE name = :entry_name RETURNING *;";
-        let mut stmt = conn.prepare(q)?;
-        stmt.bind((":entry_name", name.as_ref()))?;
-        // No need to check it is == State::Done since i already check that it exists with Self::get_id_from_name()
-        stmt.next()?;
-
-        read_sql_response!(stmt, name => String, url => String, added => String, author => String);
-        let author = opt_from_sql(author);
-
-        Ok(Entry::new(name, url, author, topics, Some(added)))
+        Ok(())
     }
 
     /// Gets an entry_id given a name.
     /// Returns None if no entry with that name was found.
     pub(crate) fn get_id_from_name(
-        conn: &sqlite::Connection,
+        conn: &rusqlite::Connection,
         name: impl AsRef<str>,
-    ) -> Result<Option<i64>> {
-        let q = "SELECT entry_id FROM rlist WHERE name=:name;";
-        let mut stmt = conn.prepare(q)?;
-        stmt.bind((":name", name.as_ref()))?;
-        if let sqlite::State::Done = stmt.next()? {
-            return Ok(None);
-        }
-        let entry_id = stmt.read::<i64, _>("entry_id")?;
-        Ok(Some(entry_id))
+    ) -> rusqlite::Result<Option<i64>> {
+        let mut stmt = conn.prepare("SELECT entry_id FROM rlist WHERE name=:name;")?;
+
+        stmt.query_row(rusqlite::named_params! { ":name": name.as_ref() }, |r| {
+            r.get::<_, i64>(1)
+        })
+        .optional()
     }
 
     /// Removes the entry with `entry_id` from all of its topics.
-    pub(crate) fn unlink_all_topics(conn: &sqlite::Connection, entry_id: i64) -> Result<()> {
-        let q = "DELETE FROM rlist_has_topic 
-                    WHERE entry_id = :entry_id;";
-
-        let mut stmt = conn.prepare(q)?;
-
-        stmt.bind((":entry_id", entry_id))?;
-        stmt.next()?;
-
-        Ok(())
+    pub(crate) fn unlink_all_topics(
+        conn: &rusqlite::Connection,
+        entry_id: i64,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "DELETE FROM rlist_has_topic WHERE entry_id = :entry_id;",
+            rusqlite::named_params! { ":entry_id": entry_id },
+        )
+        .map(|_| ())
     }
 
     /// Removes the entry with id = `entry_id` from all of the topics in `topics`
@@ -281,4 +260,28 @@ impl DBEntry {
 
         Ok(())
     }
+}
+
+// TODO: should probably also populate the topics list before deleting them with cascade
+pub(crate) fn remove_entries_by_name(
+    conn: &rusqlite::Connection,
+    name: &str,
+) -> rusqlite::Result<Vec<Entry>> {
+    let mut q = conn.prepare(
+        "DELETE FROM entry 
+        WHERE name = :name
+        RETURNING name, url, author",
+    )?;
+
+    q.query_map(
+        rusqlite::named_params! { ":name": name },
+        |r| -> rusqlite::Result<Entry> {
+            Ok(Entry::new(
+                r.get::<_, String>(1)?,         // Name
+                r.get::<_, String>(2)?,         // Url
+                r.get::<_, Option<String>>(3)?, // Author
+            ))
+        },
+    )
+    .collect::<rusqlite::Result<Vec<Entry>>>()
 }

@@ -9,11 +9,12 @@ repository = "https://github.com/fedfontana/rlist"
 
 [dependencies]
 anyhow = "1.0.68"
-chrono = { version = "0.4.23", features = ["serde"] }
 clap = { version = "4.0.32", features = ["derive"] }
 colored = "2.0.0"
 dateparser = "0.1.7"
 dirs = "4.0.0"
+jiff = { version = "0.2.13", features = ["serde"] }
+rusqlite = { version = "0.35.0", features = ["bundled", "jiff", "uuid"] }
 serde = { version = "1.0.152", features = ["derive"] }
 serde_yaml = "0.9.16"
-sqlite = "0.30.3"
+uuid = { version = "1.16.0", features = ["serde", "v7"] }
